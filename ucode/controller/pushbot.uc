@@ -37,35 +37,21 @@ return {
 	act_client_list: function() {
 		let clients = [];
 		let usage_map = {};
+
+		/* 流量数据源由 shell 脚本统一探测，直接调 usage list 获取数据 */
+		let pf = popen("/usr/bin/pushbot/pushbot usage list 2>/dev/null", "r");
+		if (pf) {
+			for (let line = pf.read("line"); line; line = pf.read("line")) {
+				let m = match(line, /^(\S+)\s+(\S+)/);
+				if (m) usage_map[uc(m[1])] = +m[2] || 0;
+			}
+			pf.close();
+		}
+
+		/* 读取脚本探测的数据源类型 */
 		let traffic_src = "wrtbw";
-
-		/* 整体判断数据源：nlbw 能输出数据就全局用 nlbw，否则回落 wrtbw */
-		let nf = popen("/usr/sbin/nlbw -c csv -s, -q -n -g mac 2>/dev/null", "r");
-		if (nf) {
-			let first = nf.read("line");
-			if (first && !match(first, /^mac,/)) first = nf.read("line");
-			if (first && match(first, /^mac,/)) {
-				traffic_src = "nlbw";
-				for (let line = nf.read("line"); line; line = nf.read("line")) {
-					let parts = split(line, ",");
-					if (length(parts) >= 6) usage_map[uc(parts[0])] = (+parts[2] || 0) + (+parts[4] || 0);
-				}
-			}
-			nf.close();
-		}
-
-		/* nlbw 不可用或无数据，回落 wrtbw */
-		if (traffic_src != "nlbw") {
-			traffic_src = "wrtbw";
-			let pf = popen("/usr/bin/pushbot/pushbot usage list 2>/dev/null", "r");
-			if (pf) {
-				for (let line = pf.read("line"); line; line = pf.read("line")) {
-					let m = match(line, /^(\S+)\s+(\S+)/);
-					if (m) usage_map[uc(m[1])] = +m[2] || 0;
-				}
-				pf.close();
-			}
-		}
+		let sf = popen("cat /tmp/pushbot/traffic_source 2>/dev/null", "r");
+		if (sf) { let v = sf.read("line"); if (v && v == "nlbw") traffic_src = "nlbw"; sf.close(); }
 
 		let f = open("/tmp/pushbot/ipAddress", "r");
 		if (f) {
