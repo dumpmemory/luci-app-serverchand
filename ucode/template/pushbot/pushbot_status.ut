@@ -1010,21 +1010,117 @@ XHR.get('{{ dispatcher.build_url('admin', 'services', 'pushbot', 'version') }}',
 			card.appendChild(timeWrap);
 		})();
 
-		/* MAC Filter 1 */
+		/* MAC Filter 1 — multi-toggle with mutex + coexist rules
+		 *
+		 * 3 toggle buttons (all off = Normal / no filtering):
+		 *   whitelist — Ignore devices in list
+		 *   blacklist — Notify only devices in list
+		 *   iface     — Notify only on this interface
+		 *
+		 * Rules:
+		 *   - whitelist ↔ blacklist: mutually exclusive
+		 *   - interface is independent, can coexist with whitelist or blacklist
+		 *   - all off = Normal (no filtering), no explicit disable button
+		 */
 		(function() {
 			var title = document.createElement('div');
 			title.className = 'pushbot-inline-title';
 			title.style.cssText = 'margin:14px 0 6px 2px;text-transform:none;font-size:13px';
 			title.textContent = '{{ _('MAC Filter') }}';
 			card.appendChild(title);
-			card.appendChild(mkChoice('macmechanism', ['', 'allow', 'block', 'interface'],
-				{'':'{{ _('Disabled') }}','allow':'{{ _('Ignore devices in list') }}','block':'{{ _('Notify only devices in list') }}','interface':'{{ _('Notify only devices on this interface') }}'},
-				function(v) { renderMac1(v); }
-			));
 
+			/* derive initial states from existing UCI config */
+			var hasWhitelist = PB_list('pushbot_whitelist').length > 0;
+			var hasBlacklist = PB_list('pushbot_blacklist').length > 0;
+			var hasIface     = (PB_val('pushbot_interface', '') !== '');
+
+			/* if macmechanism was set (legacy), map to new states */
+			if (!hasWhitelist && !hasBlacklist && !hasIface) {
+				if (mac1Cur === 'allow')     hasWhitelist = true;
+				if (mac1Cur === 'block')      hasBlacklist = true;
+				if (mac1Cur === 'interface')  hasIface = true;
+			}
+
+			var states = {
+				whitelist:   hasWhitelist,
+				blacklist:   hasBlacklist,
+				iface:       hasIface
+			};
+
+			/* hidden input for macmechanism (kept for compat) */
+			var macHi = makeHidden('macmechanism', '');
+
+			/* status line */
+			var statusEl = document.createElement('div');
+			statusEl.style.cssText = 'margin:6px 0 8px 2px;font-size:12px;color:#64748b';
+			card.appendChild(statusEl);
+
+			/* build toggle buttons */
+			var toggleWrap = document.createElement('div');
+			toggleWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px';
+
+			var toggleDefs = [
+				{ key: 'whitelist', label: '{{ _('Ignore list') }}' },
+				{ key: 'blacklist', label: '{{ _('Notify only list') }}' },
+				{ key: 'iface', label: '{{ _('Notify only interface') }}' }
+			];
+
+			var toggleBtns = {};
+			toggleDefs.forEach(function(def) {
+				var b = document.createElement('button');
+				b.type = 'button';
+				b.className = 'pushbot-choice-button ' + (states[def.key] ? 'is-on' : 'is-off');
+				b.textContent = def.label;
+				b.style.cssText = 'font-size:12px;padding:6px 12px';
+				toggleBtns[def.key] = b;
+				toggleWrap.appendChild(b);
+			});
+			card.appendChild(toggleWrap);
+
+			/* status summary */
+			function updateStatus() {
+				var parts = [];
+				if (states.whitelist)   parts.push('{{ _('Ignore devices in list') }}');
+				if (states.blacklist)   parts.push('{{ _('Notify only devices in list') }}');
+				if (states.iface)       parts.push('{{ _('Notify only on this interface') }}');
+				if (parts.length === 0) parts.push('{{ _('Normal notifications, no filtering') }}');
+				statusEl.textContent = '→ ' + parts.join(' + ');
+			}
+
+			/* update hidden inputs + re-render body */
 			var mac1Body = document.createElement('div');
 			mac1Body.id = 'pm_mac1_body';
 			card.appendChild(mac1Body);
+
+			function syncHidden() {
+				/* macmechanism compat value */
+				if (states.whitelist && !states.blacklist) macHi.value = 'allow';
+				else if (states.blacklist && !states.whitelist) macHi.value = 'block';
+				else if (states.iface && !states.whitelist && !states.blacklist) macHi.value = 'interface';
+				else macHi.value = '';
+				/* clean up hidden inputs for options no longer active */
+				if (!states.iface) {
+					var old = macHiddenBox.querySelector('[name="cbid.pushbot.pushbot.pushbot_interface"]');
+					if (old) old.remove();
+				}
+				if (!states.whitelist) {
+					var sel2 = '[name="cbid.pushbot.pushbot.pushbot_whitelist"]';
+					macHiddenBox.querySelectorAll(sel2).forEach(function(el) { el.remove(); });
+				}
+				if (!states.blacklist) {
+					var sel3 = '[name="cbid.pushbot.pushbot.pushbot_blacklist"]';
+					macHiddenBox.querySelectorAll(sel3).forEach(function(el) { el.remove(); });
+				}
+				updateStatus();
+				renderBody();
+			}
+
+			function renderBody() {
+				mac1Body.innerHTML = '';
+				if (states.whitelist) makeTagField('pushbot_whitelist', '{{ _('Ignore list') }}');
+				if (states.blacklist) makeTagField('pushbot_blacklist', '{{ _('Watchlist') }}');
+				if (states.iface)     renderInterfaceSelector();
+			}
 
 			function makeTagField(opt, tag) {
 				var t = document.createElement('div');
@@ -1097,40 +1193,65 @@ XHR.get('{{ dispatcher.build_url('admin', 'services', 'pushbot', 'version') }}',
 				mac1Body.appendChild(box);
 			}
 
-			function renderMac1(v) {
-				mac1Body.innerHTML = '';
-				if (v === 'allow') makeTagField('pushbot_whitelist', '{{ _('Ignore list') }}');
-				if (v === 'block') makeTagField('pushbot_blacklist', '{{ _('Watchlist') }}');
-				if (v === 'interface') {
-					var t = document.createElement('div');
-					t.className = 'pushbot-inline-title';
-					t.style.cssText = 'margin:10px 0 4px 2px;text-transform:none;font-size:12px;color:#64748b';
-					t.textContent = '{{ _('Interface name') }}';
-					mac1Body.appendChild(t);
-					var ifaces = PB_sys('ifaces');
-					var hi = makeHidden('pushbot_interface', ifaceCur);
-					if (ifaces.length > 0) {
-						var sel = document.createElement('select');
-						sel.style.cssText = 'width:100%;padding:7px;border-radius:8px;border:1px solid rgba(148,163,184,0.3)';
-						ifaces.forEach(function(f) {
-							var opt = document.createElement('option');
-							opt.value = f; opt.textContent = f;
-							if (f === ifaceCur) { opt.selected = true; hi.value = f; }
-							sel.appendChild(opt);
-						});
-						sel.addEventListener('change', function() { hi.value = this.value; });
-						mac1Body.appendChild(sel);
-					} else {
-						var inp = document.createElement('input');
-						inp.type = 'text'; inp.placeholder = 'br-lan';
-						inp.style.cssText = 'width:100%;padding:7px 10px;border-radius:8px;border:1px solid rgba(148,163,184,0.3);font-size:13px;box-sizing:border-box;background:rgba(255,255,255,0.7);color:inherit';
-						inp.value = ifaceCur;
-						inp.addEventListener('change', function() { hi.value = this.value; });
-						mac1Body.appendChild(inp);
-					}
+			function renderInterfaceSelector() {
+				var t = document.createElement('div');
+				t.className = 'pushbot-inline-title';
+				t.style.cssText = 'margin:10px 0 4px 2px;text-transform:none;font-size:12px;color:#64748b';
+				t.textContent = '{{ _('Interface name') }}';
+				mac1Body.appendChild(t);
+				var ifaces = PB_sys('ifaces');
+				var hi = makeHidden('pushbot_interface', ifaceCur);
+				if (ifaces.length > 0) {
+					var sel = document.createElement('select');
+					sel.style.cssText = 'width:100%;padding:7px;border-radius:8px;border:1px solid rgba(148,163,184,0.3)';
+					ifaces.forEach(function(f) {
+						var opt = document.createElement('option');
+						opt.value = f; opt.textContent = f;
+						if (f === ifaceCur) { opt.selected = true; hi.value = f; }
+						sel.appendChild(opt);
+					});
+					sel.addEventListener('change', function() { hi.value = this.value; });
+					mac1Body.appendChild(sel);
+				} else {
+					var inp = document.createElement('input');
+					inp.type = 'text'; inp.placeholder = 'br-lan';
+					inp.style.cssText = 'width:100%;padding:7px 10px;border-radius:8px;border:1px solid rgba(148,163,184,0.3);font-size:13px;box-sizing:border-box;background:rgba(255,255,255,0.7);color:inherit';
+					inp.value = ifaceCur;
+					inp.addEventListener('change', function() { hi.value = this.value; });
+					mac1Body.appendChild(inp);
 				}
 			}
-			renderMac1(mac1Cur);
+
+			/* apply mutual-exclusion rules and refresh UI */
+			function applyToggles() {
+				for (var k in toggleBtns) {
+					toggleBtns[k].className = 'pushbot-choice-button ' + (states[k] ? 'is-on' : 'is-off');
+				}
+				syncHidden();
+			}
+
+			/* whitelist ↔ blacklist mutex; interface independent */
+			function modeClick(key) {
+				return function(e) {
+					e.preventDefault();
+					if (states[key]) {
+						/* toggling off */
+						states[key] = false;
+					} else {
+						/* toggling on: enforce whitelist/blacklist mutex */
+						if (key === 'whitelist') states.blacklist = false;
+						if (key === 'blacklist') states.whitelist = false;
+						states[key] = true;
+					}
+					applyToggles();
+				};
+			}
+			toggleBtns.whitelist.addEventListener('click', modeClick('whitelist'));
+			toggleBtns.blacklist.addEventListener('click', modeClick('blacklist'));
+			toggleBtns.iface.addEventListener('click', modeClick('iface'));
+
+			/* initial render */
+			syncHidden();
 		})();
 
 		/* MAC Filter 2 */
