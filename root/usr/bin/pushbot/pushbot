@@ -526,8 +526,8 @@ function usage(){
 		if [ "$traffic_source" = "nlbw" ] && [ ! -z "$2" ]; then
 			tmptotal=$(nlbw -c csv -s, -q -n -g mac 2>/dev/null | awk -F',' -v m="$(echo "$2"|tr 'A-Z' 'a-z')" 'NR>1 && $1==m {print $3+$5; exit}')
 		fi
-		# wrtbw 回落（nlbw 模式下无数据时也回落，wrtbw 模式下直接走这里）
-		if [ "$traffic_source" = "wrtbw" ] || [ -z "$tmptotal" ] || [ "$tmptotal" = "0" ]; then
+		# wrtbw 回落（nlbw 模式下 MAC 不在 nlbw 中时回落，wrtbw 模式下直接走这里）
+		if [ "$traffic_source" = "wrtbw" ] || [ -z "$tmptotal" ]; then
 			local dbrows=$(grep -c "," ${dir}usage.db 2>/dev/null)
 			[ -z "$dbrows" ] && dbrows="0"
 			if [ "$dbrows" -gt "1" ]; then
@@ -543,8 +543,9 @@ function usage(){
 		# 输出 "mac total_bytes" 列表(供 LuCI 在线设备表格)
 		if [ "$traffic_source" = "nlbw" ]; then
 			nlbw -c csv -s, -q -n -g mac 2>/dev/null | awk -F',' 'NR>1 && $1!="mac" {print tolower($1)" "$3+$5}'
+			return
 		fi
-		# wrtbw 补充（nlbw 模式下无数据时补充，wrtbw 模式下直接走这里）
+		# wrtbw 模式
 		local dbrows=$(grep -c "," ${dir}usage.db 2>/dev/null)
 		[ -z "$dbrows" ] && dbrows="0"
 		if [ "$dbrows" -gt "1" ]; then
