@@ -1071,7 +1071,6 @@ XHR.get('{{ dispatcher.build_url('admin', 'services', 'pushbot', 'version') }}',
 				b.type = 'button';
 				b.className = 'pushbot-choice-button ' + (states[def.key] ? 'is-on' : 'is-off');
 				b.textContent = def.label;
-				b.style.cssText = 'font-size:12px;padding:6px 12px';
 				toggleBtns[def.key] = b;
 				toggleWrap.appendChild(b);
 			});
@@ -1197,7 +1196,7 @@ XHR.get('{{ dispatcher.build_url('admin', 'services', 'pushbot', 'version') }}',
 				var t = document.createElement('div');
 				t.className = 'pushbot-inline-title';
 				t.style.cssText = 'margin:10px 0 4px 2px;text-transform:none;font-size:12px;color:#64748b';
-				t.textContent = '{{ _('Interface name') }}';
+				t.textContent = '{{ _('Notify only interface:') }}';
 				mac1Body.appendChild(t);
 				var ifaces = PB_sys('ifaces');
 				var hi = makeHidden('pushbot_interface', ifaceCur);
