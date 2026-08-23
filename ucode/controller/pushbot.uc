@@ -37,6 +37,7 @@ return {
 	act_client_list: function() {
 		let clients = [];
 		let usage_map = {};
+		let source_map = {};
 
 		let pf = popen("/usr/bin/pushbot/pushbot usage list 2>/dev/null", "r");
 		if (pf) {
@@ -45,6 +46,19 @@ return {
 				if (m) usage_map[uc(m[1])] = +m[2] || 0;
 			}
 			pf.close();
+		}
+
+		/* determine per-MAC data source from nlbw directly (columns: mac,conns,rx_bytes,rx_pkts,tx_bytes,tx_pkts) */
+		let nf = popen("/usr/bin/nlbw -c csv -s, -q -n -g mac 2>/dev/null", "r");
+		if (nf) {
+			for (let line = nf.read("line"); line; line = nf.read("line")) {
+				let parts = split(line, ",");
+				if (length(parts) >= 6 && parts[0] != "mac") {
+					let total = (+parts[2] || 0) + (+parts[4] || 0);
+					if (total > 0) source_map[uc(parts[0])] = "nlbw";
+				}
+			}
+			nf.close();
 		}
 
 		let f = open("/tmp/pushbot/ipAddress", "r");
@@ -56,12 +70,14 @@ return {
 					if (m) {
 						let now = time();
 						let up = +m[4] || 0;
+						let mac = uc(m[2]);
 						push(clients, {
 							ip:       m[1] ?? "",
-							mac:      uc(m[2]),
+							mac:      mac,
 							hostname: m[3] ?? "",
 							uptime:   up ? now - up : 0,
-							usage:    format_bytes(usage_map[uc(m[2])] ?? 0)
+							usage:    format_bytes(usage_map[mac] ?? 0),
+							src:      source_map[mac] || "wrtbw"
 						});
 					}
 				}
