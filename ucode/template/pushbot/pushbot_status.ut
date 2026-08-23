@@ -2831,7 +2831,7 @@ function initModernTabs() {
 	var clientPane = document.createElement('div');
 	clientPane.id = 'pushbot_pane_client';
 	clientPane.className = 'pushbot-tab-pane';
-	clientPane.innerHTML = '<div class="pushbot-mode-card" style="padding:0;overflow:hidden"><div class="pushbot-log-container"><div class="pushbot-log-header"><div class="pushbot-log-controls"><label class="pushbot-log-switch" id="client_auto_switch"><span class="pushbot-log-switch-text">{{ _('Auto refresh') }}</span><input type="checkbox" id="client_auto_toggle" checked><span class="pushbot-log-switch-track"></span></label><label class="pushbot-log-switch" id="client_src_switch"><span class="pushbot-log-switch-text">{{ _('Show traffic source') }}</span><input type="checkbox" id="client_src_toggle"><span class="pushbot-log-switch-track"></span></label><button class="pushbot-log-btn" id="client_refresh_btn">{{ _('Refresh') }}</button></div></div><div class="pushbot-log-content" id="pushbot_client_content"><p style="padding:12px;margin:0;color:#94a3b8;text-align:center">{{ _('Loading...') }}</p></div></div></div>';
+	clientPane.innerHTML = '<div class="pushbot-mode-card" style="padding:0;overflow:hidden"><div class="pushbot-log-container"><div class="pushbot-log-header"><div class="pushbot-log-controls"><label class="pushbot-log-switch" id="client_auto_switch"><span class="pushbot-log-switch-text">{{ _('Auto refresh') }}</span><input type="checkbox" id="client_auto_toggle" checked><span class="pushbot-log-switch-track"></span></label><span id="client_traffic_src" style="margin-left:8px;display:none"></span><button class="pushbot-log-btn" id="client_refresh_btn">{{ _('Refresh') }}</button></div></div><div class="pushbot-log-content" id="pushbot_client_content"><p style="padding:12px;margin:0;color:#94a3b8;text-align:center">{{ _('Loading...') }}</p></div></div></div>';
 
 	var logPane = document.createElement('div');
 	logPane.id = 'pushbot_pane_log';
@@ -3014,6 +3014,15 @@ function initModernTabs() {
 	var _clientData = [];
 	var _clientSortKey = 'uptime';
 	var _clientSortAsc = false;
+	var _clientTrafficSrc = 'wrtbw';
+	function renderClientSrc() {
+		var el = document.getElementById('client_traffic_src');
+		if (!el) return;
+		var isNlbw = _clientTrafficSrc === 'nlbw';
+		var pillColor = isNlbw ? 'background:rgba(34,197,94,0.15);color:#16a34a;border:1px solid rgba(34,197,94,0.3)' : 'background:rgba(249,115,22,0.15);color:#ea580c;border:1px solid rgba(249,115,22,0.3)';
+		el.style.display = '';
+		el.innerHTML = '{{ _('Traffic source') }}: <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;vertical-align:middle;margin-left:4px;' + pillColor + '">' + (isNlbw ? 'nlbwmon' : 'wrtbwmon') + '</span>';
+	}
 	function renderClientTable() {
 		var container = document.getElementById('pushbot_client_content');
 		if (!container) return;
@@ -3045,26 +3054,18 @@ function initModernTabs() {
 		});
 		/* 只在当前排序列显示方向箭头，其他列不显示 */
 		function arrow(key) { return key === _clientSortKey ? (_clientSortAsc ? ' ↑' : ' ↓') : ''; }
-		var showSrc = document.getElementById('client_src_toggle') && document.getElementById('client_src_toggle').checked;
 		var html = '<div style="overflow-x:auto"><table class="pushbot-client-table"><thead><tr>' +
 			'<th class="pushbot-sortable" data-key="hostname">{{ _('Hostname') }}' + arrow('hostname') + '</th>' +
 			'<th class="pushbot-sortable" data-key="mac">{{ _('MAC address') }}' + arrow('mac') + '</th>' +
 			'<th class="pushbot-sortable" data-key="ip">{{ _('IP address') }}' + arrow('ip') + '</th>' +
 			'<th class="pushbot-sortable" data-key="usage">{{ _('Traffic') }}' + arrow('usage') + '</th>' +
-			(showSrc ? '<th>{{ _('Source') }}</th>' : '') +
 			'<th class="pushbot-sortable" data-key="uptime">{{ _('Online time') }}' + arrow('uptime') + '</th>' +
 			'</tr></thead><tbody>';
 		sorted.forEach(function(c) {
 			var h = c.hostname || '-';
 			if (h.indexOf('?') === 0) h = h.substring(1);
 			if (!h || h === '?') h = '-';
-			var srcCell = '';
-			if (showSrc) {
-				var isNlbw = c.src === 'nlbw';
-				var pillColor = isNlbw ? 'background:rgba(34,197,94,0.15);color:#16a34a;border:1px solid rgba(34,197,94,0.3)' : 'background:rgba(249,115,22,0.15);color:#ea580c;border:1px solid rgba(249,115,22,0.3)';
-				srcCell = '<td><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;' + pillColor + '">' + (isNlbw ? 'nlbw' : 'wrtbw') + '</span></td>';
-			}
-			html += '<tr><td>' + escHtml(h) + '</td><td class="pushbot-cell-mac">' + escHtml(c.mac) + '</td><td>' + escHtml(c.ip) + '</td><td>' + escHtml(c.usage) + '</td>' + srcCell + '<td>' + timeForHumans(Math.max(0, c.uptime)) + '</td></tr>';
+			html += '<tr><td>' + escHtml(h) + '</td><td class="pushbot-cell-mac">' + escHtml(c.mac) + '</td><td>' + escHtml(c.ip) + '</td><td>' + escHtml(c.usage) + '</td><td>' + timeForHumans(Math.max(0, c.uptime)) + '</td></tr>';
 		});
 		html += '</tbody></table></div>';
 		container.innerHTML = html;
@@ -3083,7 +3084,12 @@ function initModernTabs() {
 		XHR.get('{{ dispatcher.build_url('admin', 'services', 'pushbot', 'client_list') }}', null,
 			function(x) {
 				if (!x || x.status != 200) { container.innerHTML = '<p style="padding:12px;margin:0;color:#ef4444;text-align:center">{{ _('Load failed') }}</p>'; return; }
-				try { _clientData = JSON.parse(x.responseText); } catch(e) { _clientData = []; }
+				try {
+					var raw = JSON.parse(x.responseText);
+					if (raw && raw.list) { _clientData = raw.list; _clientTrafficSrc = raw.src || 'wrtbw'; }
+					else { _clientData = raw || []; _clientTrafficSrc = 'wrtbw'; }
+				} catch(e) { _clientData = []; _clientTrafficSrc = 'wrtbw'; }
+				renderClientSrc();
 				renderClientTable();
 			}
 		);
@@ -3117,10 +3123,6 @@ function initModernTabs() {
 			loadClients();
 			setTimeout(function() { refreshBtn.textContent = '{{ _('Refresh') }}'; }, 1000);
 		});
-	}
-	var srcToggle = document.getElementById('client_src_toggle');
-	if (srcToggle) {
-		srcToggle.addEventListener('change', function() { renderClientTable(); });
 	}
 }
 

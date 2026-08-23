@@ -37,28 +37,34 @@ return {
 	act_client_list: function() {
 		let clients = [];
 		let usage_map = {};
-		let source_map = {};
+		let traffic_src = "wrtbw";
 
-		let pf = popen("/usr/bin/pushbot/pushbot usage list 2>/dev/null", "r");
-		if (pf) {
-			for (let line = pf.read("line"); line; line = pf.read("line")) {
-				let m = match(line, /^(\S+)\s+(\S+)/);
-				if (m) usage_map[uc(m[1])] = +m[2] || 0;
-			}
-			pf.close();
-		}
-
-		/* determine per-MAC data source from nlbw directly (columns: mac,conns,rx_bytes,rx_pkts,tx_bytes,tx_pkts) */
+		/* 整体判断数据源：nlbw 能输出数据就全局用 nlbw，否则回落 wrtbw */
 		let nf = popen("/usr/sbin/nlbw -c csv -s, -q -n -g mac 2>/dev/null", "r");
 		if (nf) {
-			for (let line = nf.read("line"); line; line = nf.read("line")) {
-				let parts = split(line, ",");
-				if (length(parts) >= 6 && parts[0] != "mac") {
-					let total = (+parts[2] || 0) + (+parts[4] || 0);
-					if (total > 0) source_map[uc(parts[0])] = "nlbw";
+			let first = nf.read("line");
+			if (first && !match(first, /^mac,/)) first = nf.read("line");
+			if (first && match(first, /^mac,/)) {
+				traffic_src = "nlbw";
+				for (let line = nf.read("line"); line; line = nf.read("line")) {
+					let parts = split(line, ",");
+					if (length(parts) >= 6) usage_map[uc(parts[0])] = (+parts[2] || 0) + (+parts[4] || 0);
 				}
 			}
 			nf.close();
+		}
+
+		/* nlbw 不可用或无数据，回落 wrtbw */
+		if (traffic_src != "nlbw") {
+			traffic_src = "wrtbw";
+			let pf = popen("/usr/bin/pushbot/pushbot usage list 2>/dev/null", "r");
+			if (pf) {
+				for (let line = pf.read("line"); line; line = pf.read("line")) {
+					let m = match(line, /^(\S+)\s+(\S+)/);
+					if (m) usage_map[uc(m[1])] = +m[2] || 0;
+				}
+				pf.close();
+			}
 		}
 
 		let f = open("/tmp/pushbot/ipAddress", "r");
@@ -76,8 +82,7 @@ return {
 							mac:      mac,
 							hostname: m[3] ?? "",
 							uptime:   up ? now - up : 0,
-							usage:    format_bytes(usage_map[mac] ?? 0),
-							src:      source_map[mac] || "wrtbw"
+							usage:    format_bytes(usage_map[mac] ?? 0)
 						});
 					}
 				}
@@ -86,7 +91,7 @@ return {
 		}
 
 		http.prepare_content("application/json");
-		http.write_json(clients);
+		http.write_json({ src: traffic_src, list: clients });
 	},
 
 	act_send_test: function() {
