@@ -49,7 +49,7 @@ return {
 		}
 
 		/* determine per-MAC data source from nlbw directly (columns: mac,conns,rx_bytes,rx_pkts,tx_bytes,tx_pkts) */
-		let nf = popen("/usr/bin/nlbw -c csv -s, -q -n -g mac 2>/dev/null", "r");
+		let nf = popen("/usr/sbin/nlbw -c csv -s, -q -n -g mac 2>/dev/null", "r");
 		if (nf) {
 			for (let line = nf.read("line"); line; line = nf.read("line")) {
 				let parts = split(line, ",");
