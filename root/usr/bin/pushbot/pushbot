@@ -93,29 +93,6 @@ function read_config(){
 	# ntfy 纯文本: 不支持表格/markdown, 强制非表格
 	( echo "${jsonpath}"|grep -q "ntfy" ) && table_enable=""
 	( echo "$lite_enable"|grep -q "content" ) && str_title_start="" && str_title_end="" && str_splitline="" && str_linefeed="" && str_tab=""
-}
-	
-	
-
-# 初始化
-function pushbot_init(){
-	enable_detection
-	if [ -f "/usr/bin/pushbot/errlog" ]; then
-		cat /usr/bin/pushbot/errlog > ${logfile}
-		echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】载入上次重启前日志" >> ${logfile}
-		echo "--------------------------------------------------------" >> ${logfile}
-	fi
-	down_oui &
-	deltemp
-	get_syslog
-	add_ip_black
-	
-	rm -f ${dir}fd1 ${dir}sheep_usage ${dir}old_sheep_usage ${dir}client_usage_aliases ${dir}old_client_usage_aliases /usr/bin/pushbot/errlog >/dev/null 2>&1
-	[ -f "/usr/sbin/wrtbwmon" ] || command -v nlbw >/dev/null 2>&1 || echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】未安装 wrtbwmon 且 nlbwmon 不可用，流量统计不可用" >> ${logfile}
-	[ -z "$ip_version" ] && echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】无法获取依赖项 iputils-arping 版本号，请确认插件是否正常运行" >> ${logfile}
-	[ -z "$cu_version" ] && echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】无法获取依赖项 curl 版本号，请确认插件是否正常运行" >> ${logfile}
-	[ -z "${dd_webhook}${pp_token}${we_webhook}${fs_webhook}${bark_token}${pushdeer_key}" ] && echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】请填写正确的Token/Webhook " >> ${logfile} && return 1
-	local interfacelist=`getinterfacelist` && [ -z "$interfacelist" ] && echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】无法正确获取接口信息，请确认插件是否正常运行" >> ${logfile}
 
 	# ── 流量数据源探测（启动时判断一次，后续统一使用） ──
 	traffic_source="none"
@@ -143,6 +120,30 @@ function pushbot_init(){
 		echo "`date "+%Y-%m-%d %H:%M:%S"` 【初始化】流量数据源: ${traffic_source}" >> ${logfile}
 		echo "$traffic_source" > ${dir}traffic_source
 	fi
+}
+	
+	
+
+# 初始化
+function pushbot_init(){
+	enable_detection
+	if [ -f "/usr/bin/pushbot/errlog" ]; then
+		cat /usr/bin/pushbot/errlog > ${logfile}
+		echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】载入上次重启前日志" >> ${logfile}
+		echo "--------------------------------------------------------" >> ${logfile}
+	fi
+	down_oui &
+	deltemp
+	get_syslog
+	add_ip_black
+	
+	rm -f ${dir}fd1 ${dir}sheep_usage ${dir}old_sheep_usage ${dir}client_usage_aliases ${dir}old_client_usage_aliases /usr/bin/pushbot/errlog >/dev/null 2>&1
+	[ -f "/usr/sbin/wrtbwmon" ] || command -v nlbw >/dev/null 2>&1 || echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】未安装 wrtbwmon 且 nlbwmon 不可用，流量统计不可用" >> ${logfile}
+	[ -z "$ip_version" ] && echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】无法获取依赖项 iputils-arping 版本号，请确认插件是否正常运行" >> ${logfile}
+	[ -z "$cu_version" ] && echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】无法获取依赖项 curl 版本号，请确认插件是否正常运行" >> ${logfile}
+	[ -z "${dd_webhook}${pp_token}${we_webhook}${fs_webhook}${bark_token}${pushdeer_key}" ] && echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】请填写正确的Token/Webhook " >> ${logfile} && return 1
+	local interfacelist=`getinterfacelist` && [ -z "$interfacelist" ] && echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】无法正确获取接口信息，请确认插件是否正常运行" >> ${logfile}
+	return 0
 
 	return 0
 }
