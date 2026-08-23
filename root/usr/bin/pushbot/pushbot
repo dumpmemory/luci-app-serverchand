@@ -126,11 +126,11 @@ function pushbot_init(){
 	fi
 	if [ "$traffic_source" = "none" ]; then
 		if command -v nlbw >/dev/null 2>&1 && [ -S /var/run/nlbwmon.sock ]; then
-			# 尝试 3 次查询 nlbw，任意一次有数据就选定 nlbw
+			# 尝试 3 次查询 nlbw，任意一次能正常输出就算成功（全 0 也正常）
 			local _try
 			for _try in 1 2 3; do
-				local _nlbw_test=$(nlbw -c csv -s, -q -n -g mac 2>/dev/null | awk -F',' 'NR>1 && $1!="mac" {total=0; for(i=3;i<=NF;i+=2) total+=($i+0); if(total>0){found=1;exit}} END{print found}')
-				[ "$_nlbw_test" = "1" ] && traffic_source="nlbw" && break
+				local _nlbw_rows=$(nlbw -c csv -s, -q -n -g mac 2>/dev/null | awk -F',' 'NR>1 && $1!="mac" {n++} END{print n+0}')
+				[ "${_nlbw_rows:-0}" -gt "0" ] && traffic_source="nlbw" && break
 				sleep 1
 			done
 		fi
