@@ -50,8 +50,7 @@ return {
 
 		/* 读取脚本探测的数据源类型 */
 		let traffic_src = "wrtbw";
-		let sf = popen("cat /tmp/pushbot/traffic_source 2>/dev/null", "r");
-		if (sf) { let v = sf.read("line"); if (v && v == "nlbw") traffic_src = "nlbw"; sf.close(); }
+		try { let v = readfile("/tmp/pushbot/traffic_source"); if (v && trim(v) === "nlbw") traffic_src = "nlbw"; } catch(e) {}
 
 		let f = open("/tmp/pushbot/ipAddress", "r");
 		if (f) {
