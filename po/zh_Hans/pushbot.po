@@ -554,6 +554,12 @@ msgstr "仅通知接口"
 msgid "Notify only interface:"
 msgstr "仅通知接口："
 
+msgid "Notify only list"
+msgstr "仅通知列表"
+
+msgid "Notify only on this interface"
+msgstr "仅通知此接口"
+
 msgid "Not a public IP"
 msgstr "非公网IP"
 
