@@ -2185,7 +2185,8 @@ else
 	fi
 	echo "$traffic_source" > ${dir}traffic_source
 fi
-echo "`date "+%Y-%m-%d %H:%M:%S"` 【初始化】流量数据源: ${traffic_source}" >> ${logfile}
+# 仅主进程输出日志（外部调用 usage list/get 不输出，避免频繁刷屏）
+[ "$1" != "usage" ] && echo "`date "+%Y-%m-%d %H:%M:%S"` 【初始化】流量数据源: ${traffic_source}" >> ${logfile}
 
 # 供外部查询流量(LuCI 在线设备表格):pushbot usage list / pushbot usage get <mac> [bytes]
 # 注意:必须放在 deltemp 之前,避免查询时误删主循环的 pushbot.lock
