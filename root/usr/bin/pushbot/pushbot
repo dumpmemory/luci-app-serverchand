@@ -97,7 +97,7 @@ function read_config(){
 	# ── 流量数据源探测（启动时判断一次，后续统一使用） ──
 	traffic_source="none"
 	# 外部调用（usage list/get）跳过探测，直接读缓存文件
-	if [ "$1" = "usage" ] && [ -f "${dir}traffic_source" ]; then
+	if [ "$SCRIPT_ARG" = "usage" ] && [ -f "${dir}traffic_source" ]; then
 		traffic_source=$(cat ${dir}traffic_source 2>/dev/null)
 		[ -z "$traffic_source" ] && traffic_source="none"
 	fi
@@ -2187,6 +2187,9 @@ function send(){
 	fi
 	deltemp
 }
+
+# 保存脚本参数（函数内 $1 不继承调用者，需全局变量传递）
+SCRIPT_ARG="$1"
 
 # 初始化
 read_config
