@@ -2177,7 +2177,7 @@ if [ "$1" = "usage" ]; then
 else
 	# 主进程：重新探测（不 sleep，nlbw 立刻能返回数据就是 nlbw）
 	if command -v nlbw >/dev/null 2>&1 && [ -S /var/run/nlbwmon.sock ]; then
-		local _nlbw_rows=$(nlbw -c csv -s, -q -n -g mac 2>/dev/null | awk -F',' 'NR>1 && $1!="mac" {n++} END{print n+0}')
+		_nlbw_rows=$(nlbw -c csv -s, -q -n -g mac 2>/dev/null | awk -F',' 'NR>1 && $1!="mac" {n++} END{print n+0}')
 		[ "${_nlbw_rows:-0}" -gt "0" ] && traffic_source="nlbw"
 	fi
 	if [ "$traffic_source" = "none" ] && [ -f "/usr/sbin/wrtbwmon" ]; then
