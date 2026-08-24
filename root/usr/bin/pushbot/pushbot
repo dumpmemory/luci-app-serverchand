@@ -2166,14 +2166,8 @@ SCRIPT_ARG="$1"
 
 # 初始化
 read_config
-# 供外部查询流量(LuCI 在线设备表格):pushbot usage list / pushbot usage get <mac> [bytes]
-# 注意:必须放在 deltemp 之前,避免查询时误删主循环的 pushbot.lock
-if [ "$1" = "usage" ]; then
-	usage ${2} ${3} ${4}
-	exit
-fi
 
-# ── 流量数据源探测（仅启动时执行一次，后续统一使用缓存） ──
+# ── 流量数据源探测（读缓存或首次探测，usage list/get 也依赖此变量） ──
 traffic_source="none"
 if [ -f "${dir}traffic_source" ]; then
 	traffic_source=$(cat ${dir}traffic_source 2>/dev/null)
@@ -2181,7 +2175,6 @@ if [ -f "${dir}traffic_source" ]; then
 fi
 if [ "$traffic_source" = "none" ]; then
 	if command -v nlbw >/dev/null 2>&1 && [ -S /var/run/nlbwmon.sock ]; then
-		# 尝试 3 次查询 nlbw，任意一次能正常输出就算成功（全 0 也正常）
 		local _try
 		for _try in 1 2 3; do
 			local _nlbw_rows=$(nlbw -c csv -s, -q -n -g mac 2>/dev/null | awk -F',' 'NR>1 && $1!="mac" {n++} END{print n+0}')
@@ -2190,13 +2183,19 @@ if [ "$traffic_source" = "none" ]; then
 		done
 	fi
 	if [ "$traffic_source" = "none" ]; then
-		# nlbw 不可用或无数据，回落 wrtbwmon
 		if [ -f "/usr/sbin/wrtbwmon" ]; then
 			traffic_source="wrtbw"
 		fi
 	fi
 	echo "`date "+%Y-%m-%d %H:%M:%S"` 【初始化】流量数据源: ${traffic_source}" >> ${logfile}
 	echo "$traffic_source" > ${dir}traffic_source
+fi
+
+# 供外部查询流量(LuCI 在线设备表格):pushbot usage list / pushbot usage get <mac> [bytes]
+# 注意:必须放在 deltemp 之前,避免查询时误删主循环的 pushbot.lock
+if [ "$1" = "usage" ]; then
+	usage ${2} ${3} ${4}
+	exit
 fi
 
 deltemp
