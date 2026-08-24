@@ -93,33 +93,6 @@ function read_config(){
 	# ntfy 纯文本: 不支持表格/markdown, 强制非表格
 	( echo "${jsonpath}"|grep -q "ntfy" ) && table_enable=""
 	( echo "$lite_enable"|grep -q "content" ) && str_title_start="" && str_title_end="" && str_splitline="" && str_linefeed="" && str_tab=""
-
-	# ── 流量数据源探测（启动时判断一次，后续统一使用） ──
-	traffic_source="none"
-	# 外部调用（usage list/get）跳过探测，直接读缓存文件
-	if [ "$SCRIPT_ARG" = "usage" ] && [ -f "${dir}traffic_source" ]; then
-		traffic_source=$(cat ${dir}traffic_source 2>/dev/null)
-		[ -z "$traffic_source" ] && traffic_source="none"
-	fi
-	if [ "$traffic_source" = "none" ]; then
-		if command -v nlbw >/dev/null 2>&1 && [ -S /var/run/nlbwmon.sock ]; then
-			# 尝试 3 次查询 nlbw，任意一次能正常输出就算成功（全 0 也正常）
-			local _try
-			for _try in 1 2 3; do
-				local _nlbw_rows=$(nlbw -c csv -s, -q -n -g mac 2>/dev/null | awk -F',' 'NR>1 && $1!="mac" {n++} END{print n+0}')
-				[ "${_nlbw_rows:-0}" -gt "0" ] && traffic_source="nlbw" && break
-				sleep 1
-			done
-		fi
-		if [ "$traffic_source" = "none" ]; then
-			# nlbw 不可用或无数据，回落 wrtbwmon
-			if [ -f "/usr/sbin/wrtbwmon" ]; then
-				traffic_source="wrtbw"
-			fi
-		fi
-		echo "`date "+%Y-%m-%d %H:%M:%S"` 【初始化】流量数据源: ${traffic_source}" >> ${logfile}
-		echo "$traffic_source" > ${dir}traffic_source
-	fi
 }
 	
 	
@@ -2199,6 +2172,33 @@ if [ "$1" = "usage" ]; then
 	usage ${2} ${3} ${4}
 	exit
 fi
+
+# ── 流量数据源探测（仅启动时执行一次，后续统一使用缓存） ──
+traffic_source="none"
+if [ -f "${dir}traffic_source" ]; then
+	traffic_source=$(cat ${dir}traffic_source 2>/dev/null)
+	[ -z "$traffic_source" ] && traffic_source="none"
+fi
+if [ "$traffic_source" = "none" ]; then
+	if command -v nlbw >/dev/null 2>&1 && [ -S /var/run/nlbwmon.sock ]; then
+		# 尝试 3 次查询 nlbw，任意一次能正常输出就算成功（全 0 也正常）
+		local _try
+		for _try in 1 2 3; do
+			local _nlbw_rows=$(nlbw -c csv -s, -q -n -g mac 2>/dev/null | awk -F',' 'NR>1 && $1!="mac" {n++} END{print n+0}')
+			[ "${_nlbw_rows:-0}" -gt "0" ] && traffic_source="nlbw" && break
+			sleep 1
+		done
+	fi
+	if [ "$traffic_source" = "none" ]; then
+		# nlbw 不可用或无数据，回落 wrtbwmon
+		if [ -f "/usr/sbin/wrtbwmon" ]; then
+			traffic_source="wrtbw"
+		fi
+	fi
+	echo "`date "+%Y-%m-%d %H:%M:%S"` 【初始化】流量数据源: ${traffic_source}" >> ${logfile}
+	echo "$traffic_source" > ${dir}traffic_source
+fi
+
 deltemp
 pushbot_cron
 
