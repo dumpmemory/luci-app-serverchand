@@ -346,6 +346,18 @@ return {
 		}
 		sysinfo.ifaces = ifaces;
 
+		/* wireless interfaces detection */
+		let wifi_ifs = [];
+		let wf = popen("iw dev 2>/dev/null | grep Interface | awk '{print $2}'", "r");
+		if (wf) {
+			for (let line = wf.read("line"); line; line = wf.read("line")) {
+				let n = replace(line, /\s+/, "");
+				if (length(n) > 0) push(wifi_ifs, n);
+			}
+			wf.close();
+		}
+		sysinfo.wifi_ifs = wifi_ifs;
+
 		/* IP hints from arp */
 		let ip_hints = [];
 		let arpf = popen("grep -E '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' /proc/net/arp 2>/dev/null", "r");

@@ -1331,14 +1331,14 @@ EOF
 	chmod 0755 ${dir}get_syslog && ${dir}get_syslog
 	rm -f ${dir}get_syslog >/dev/null 2>&1
 
-	# WiFi 日志监听：仅当 WiFi 选项开启且有无线设备时监听 kern 日志
-	# 标准 hostapd 平台的 WiFi 日志走 daemon.notice（已被 notice 监听覆盖）
-	# MT798x 等私有驱动的 WiFi 日志走 kern 级别，需要单独监听
+	# WiFi 日志监听：仅当 WiFi 选项开启且有无线设备时监听
+	# 标准 hostapd 日志走 daemon.notice（已被 notice 监听覆盖）
+	# MT798x 等私有驱动日志走 kern 级别，需要监听全部日志
 	if [ ! -z "$wifi_connected" ] || [ ! -z "$wifi_auth_failed" ]; then
 		if [ ! -z "$wlan_interface" ]; then
 cat>${dir}get_wifi_syslog<<'WIFIEOF'
 #!/bin/sh
-logread -f -p kern >> /tmp/pushbot/wifi_monitor &
+logread -f >> /tmp/pushbot/wifi_monitor &
 WIFIEOF
 			chmod 0755 ${dir}get_wifi_syslog && ${dir}get_wifi_syslog
 			rm -f ${dir}get_wifi_syslog >/dev/null 2>&1

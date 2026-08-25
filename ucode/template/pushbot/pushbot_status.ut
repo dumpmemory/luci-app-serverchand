@@ -1887,7 +1887,8 @@ cuSub.appendChild(mkBtn('{{ _('Traffic DND') }}',cdOn,function(on){updateFlagInp
 	b3.appendChild(r2);
 
 	/* row3: WiFi connect + WiFi auth fail (only if wireless devices exist) */
-	var hasWifi = (CT_IFACES.length > 0);
+	var CT_WIFI_IFS = PB_sys('wifi_ifs');
+	var hasWifi = (CT_WIFI_IFS && CT_WIFI_IFS.length > 0);
 	if (hasWifi) {
 		var CT_WIFI_CONN = PB_bool('wifi_connected');
 		var CT_WIFI_FAIL = PB_bool('wifi_auth_failed');
@@ -1972,7 +1973,8 @@ cuSub.appendChild(mkBtn('{{ _('Traffic DND') }}',cdOn,function(on){updateFlagInp
 	function toggleFail(){
 		var wfEl = document.querySelector('[name="cbid.pushbot.pushbot.web_login_failed"]');
 		var sfEl = document.querySelector('[name="cbid.pushbot.pushbot.ssh_login_failed"]');
-		var on = (wfEl && wfEl.value === '1') || (sfEl && sfEl.value === '1');
+		var wfiEl = document.querySelector('[name="cbid.pushbot.pushbot.wifi_auth_failed"]');
+		var on = (wfEl && wfEl.value === '1') || (sfEl && sfEl.value === '1') || (wfiEl && wfiEl.value === '1');
 		failSub.style.display=on?'block':'none';
 	}
 	function toggleBan(on){banSub.style.display=on?'block':'none';}
