@@ -348,7 +348,7 @@ return {
 
 		/* wireless interfaces detection */
 		let wifi_ifs = [];
-		let wf = popen("ls /sys/class/net/*/wireless 2>/dev/null | sed 's|/sys/class/net/||;s|/wireless||'", "r");
+		let wf = popen("ls /sys/class/net/*/wireless 2>/dev/null | sed 's|/sys/class/net/||;s|/wireless||;s/:$//'", "r");
 		if (wf) {
 			for (let line = wf.read("line"); line; line = wf.read("line")) {
 				let n = replace(line, /\s+/, "");
