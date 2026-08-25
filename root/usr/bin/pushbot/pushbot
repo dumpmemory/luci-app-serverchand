@@ -1584,42 +1584,42 @@ function login_send(){
 		if [ ! -z "$wifi_auth_failed" ]; then
 			local wifi_fail_lines=$(cat "$wifi_file" 2>/dev/null | grep -i "PSK-MISMATCH\|deauthenticated due to local auth failure\|verify confirm fail\|EAPOL-Key MIC invalid")
 			if [ ! -z "$wifi_fail_lines" ]; then
-				echo "$wifi_fail_lines" > ${dir}wifi_failed_tmp
-				local wifi_fail_list=$(cat ${dir}wifi_failed_tmp | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | sort -u)
-				for wifi_mac in $wifi_fail_list; do
-					[ -z "$wifi_mac" ] && continue
-					local wifi_fail_count=$(grep -ioE "$wifi_mac" ${dir}wifi_failed_tmp | wc -l)
-					if [ "$wifi_fail_count" -ge "${login_max_num:-5}" ]; then
-						local wifi_time=$(grep -i "$wifi_mac" ${dir}wifi_failed_tmp | tail -1 | awk '{print $1" "$2" "$3}')
-						if [ "$table_enable" = "1" ]; then
-							local LF='\n'
-							local wifi_info="${LF}| **时间** | ${wifi_time} |${LF}| --- | --- |${LF}| **MAC** | ${wifi_mac} |${LF}| **失败次数** | ${wifi_fail_count} |"
-							if [ -z "$title" ]; then
-								title="WiFi 认证失败警告"
-								content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${wifi_info}"
-							elif ( echo "$title"|grep -q "WiFi" ); then
-								title="${wifi_mac} ${title}"
-								content="${content}${str_splitline}${wifi_info}"
-							else
-								title="设备状态变化"
-								content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${wifi_info}"
-							fi
-						else
-							if [ -z "$title" ]; then
-								title="WiFi 认证失败警告"
-								content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}MAC：${str_space}${wifi_mac}${str_linefeed}${str_tab}失败次数：${str_space}${wifi_fail_count}"
-							elif ( echo "$title"|grep -q "WiFi" ); then
-								title="${wifi_mac} ${title}"
-								content="${content}${str_splitline}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}MAC：${str_space}${wifi_mac}${str_linefeed}${str_tab}失败次数：${str_space}${wifi_fail_count}"
-							else
-								title="设备状态变化"
-								content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}MAC：${str_space}${wifi_mac}${str_linefeed}${str_tab}失败次数：${str_space}${wifi_fail_count}"
-							fi
-						fi
-						echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}WiFi 设备 ${wifi_mac} 认证失败 ${wifi_fail_count} 次" >> ${logfile}
+				# 去重：同一批次只通知一次，需达到阈值
+				local wifi_fail_count=$(echo "$wifi_fail_lines" | wc -l)
+				if [ "$wifi_fail_count" -ge "${login_max_num:-5}" ]; then
+				local wifi_fail_time=$(echo "$wifi_fail_lines" | tail -1 | awk '{print $1" "$2" "$3}')
+				# 提取 MAC（标准 hostapd 有 MAC，MT798x 可能没有）
+				local wifi_fail_mac=$(echo "$wifi_fail_lines" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | tail -1)
+				if [ "$table_enable" = "1" ]; then
+					local LF='\n'
+					local wifi_fail_info="${LF}| **时间** | ${wifi_fail_time} |${LF}| --- | --- |"
+					[ ! -z "$wifi_fail_mac" ] && wifi_fail_info="${wifi_fail_info}${LF}| **MAC** | ${wifi_fail_mac} |"
+					wifi_fail_info="${wifi_fail_info}${LF}| **失败次数** | ${wifi_fail_count} |"
+					if [ -z "$title" ]; then
+						title="WiFi 认证失败警告"
+						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${wifi_fail_info}"
+					elif ( echo "$title"|grep -q "WiFi" ); then
+						content="${content}${str_splitline}${wifi_fail_info}"
+					else
+						title="设备状态变化"
+						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${wifi_fail_info}"
 					fi
-				done
-				rm -f ${dir}wifi_failed_tmp
+				else
+					local wifi_fail_detail="时间：${wifi_fail_time}"
+					[ ! -z "$wifi_fail_mac" ] && wifi_fail_detail="${wifi_fail_detail}${str_linefeed}${str_tab}MAC：${str_space}${wifi_fail_mac}"
+					wifi_fail_detail="${wifi_fail_detail}${str_linefeed}${str_tab}失败次数：${str_space}${wifi_fail_count}"
+					if [ -z "$title" ]; then
+						title="WiFi 认证失败警告"
+						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${str_linefeed}${str_tab}${wifi_fail_detail}"
+					elif ( echo "$title"|grep -q "WiFi" ); then
+						content="${content}${str_splitline}${str_linefeed}${str_tab}${wifi_fail_detail}"
+					else
+						title="设备状态变化"
+						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${str_linefeed}${str_tab}${wifi_fail_detail}"
+					fi
+				fi
+				echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}WiFi 认证失败 ${wifi_fail_count} 次" >> ${logfile}
+				fi
 			fi
 		fi
 
