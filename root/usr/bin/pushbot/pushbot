@@ -1549,6 +1549,9 @@ function login_send(){
 					wifi_macs_seen="${wifi_macs_seen} ${wifi_mac}"
 					# 漫游/重连过滤：已知在线设备的 MAC 不触发通知和日志
 					[ -f "${dir}ipAddress" ] && cat ${dir}ipAddress | grep -q -i -w "${wifi_mac}" && continue
+					# 同一 MAC 在本次启动期间不重复通知
+					[ -f "${dir}wifi_notified" ] && grep -q -i -w "${wifi_mac}" ${dir}wifi_notified 2>/dev/null && continue
+					echo "$wifi_mac" >> ${dir}wifi_notified
 					echo "`date "+%Y-%m-%d %H:%M:%S"` WiFi 设备 ${wifi_mac} 已连接" >> ${logfile}
 					local wifi_time=$(echo "$line" | awk '{print $1" "$2" "$3}')
 					if [ "$table_enable" = "1" ]; then
@@ -2331,6 +2334,7 @@ fi
 pushbot_init;[ $? -eq 1 ] && echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】读取设置出错，请检查设置项 " >> ${logfile} && exit
 echo "`date "+%Y-%m-%d %H:%M:%S"` 【初始化】载入在线设备" >> ${logfile}
 > ${dir}send_enable.lock && pushbot_first && deltemp
+rm -f ${dir}wifi_notified >/dev/null 2>&1
 echo "`date "+%Y-%m-%d %H:%M:%S"` 【初始化】初始化完成" >> ${logfile}
 
 # 循环（仅当明确启用 =1 时运行；0/空/读取失败均不进入，脚本自然退出，不空转）
