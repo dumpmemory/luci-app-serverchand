@@ -1608,21 +1608,20 @@ function login_send(){
 					else
 						if [ -z "$title" ]; then
 							title="WiFi 设备已连接"
-							local _didx_t=0
+						elif ( echo "$title"|grep -q "WiFi" ); then
+							title="${_mac_text} ${title}"
+						else
+							title="设备状态变化"
+						fi
+						content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}"
+						local _didx_t=0
 						for _dm_t in $_new_macs; do
 							local _dn_t=$(echo "$_new_ssids" | awk -v n=$((_didx_t+1)) '{print $n}')
 							local _dname_t=$(getname "" "${_dm_t}")
-							[ "$_dname_t" = "unknown" ] && _dname_t="${_dm_t}"
+							[ -z "$_dname_t" ] || [ "$_dname_t" = "unknown" ] && _dname_t="${_dm_t}"
 							content="${content}${str_linefeed}${str_tab}${_dname_t}（${_dn_t}）"
 							_didx_t=$((_didx_t + 1))
 						done
-						elif ( echo "$title"|grep -q "WiFi" ); then
-							title="${_mac_text} ${title}"
-							content="${content}${str_splitline}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}"
-						else
-							title="设备状态变化"
-							content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}"
-						fi
 					fi
 				fi
 			fi
