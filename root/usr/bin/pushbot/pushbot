@@ -1594,7 +1594,7 @@ function login_send(){
 							wifi_detail_rows="${wifi_detail_rows}${LF}| **${_dname}** | ${_dn} |"
 							_didx=$((_didx + 1))
 						done
-						local wifi_info="${LF}| **时间** | ${wifi_time} |${LF}| --- | --- |${wifi_detail_rows}"
+						local wifi_info="${LF}| **设备** | **SSID** |${LF}| --- | --- |${wifi_detail_rows}"
 						if [ -z "$title" ]; then
 							title="WiFi 设备已连接"
 							content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${wifi_info}"
