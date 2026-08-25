@@ -1548,13 +1548,24 @@ function login_send(){
 			# 保存当前列表
 			echo "$wifi_cur_macs" > ${dir}wifi_cur
 
+			# 读取待确认列表（第一次出现的 MAC，需第二次仍在才通知）
+			local wifi_pending_macs=""
+			[ -f "${dir}wifi_pending" ] && wifi_pending_macs=$(cat ${dir}wifi_pending 2>/dev/null)
+
 			# WiFi 连接通知：当前有、上次没有 = 新连接（单台显示MAC，多台≤3拼接MAC，>3显示"多个设备"）
+			# 需两次检测间隔均在 assoclist 才触发，避免 auth fail 时短暂 associate 误判
 			if [ ! -z "$wifi_connected" ]; then
 				local _new_macs="" _new_ssids="" _new_count=0 _idx=0
 				for wifi_mac in $wifi_cur_macs; do
 					[ -z "$wifi_mac" ] && continue
 					[ -f "${dir}wifi_notified" ] && grep -q -i -w "${wifi_mac}" ${dir}wifi_notified 2>/dev/null && continue
 					echo "$wifi_prev_macs" | grep -q -i -w "${wifi_mac}" && continue
+					# 第一次出现：记入 pending，不通知
+					if ! echo "$wifi_pending_macs" | grep -q -i -w "${wifi_mac}"; then
+						echo "$wifi_mac" >> ${dir}wifi_pending
+						continue
+					fi
+					# 第二次仍在 assoclist：确认已连接，正式通知
 					echo "$wifi_mac" >> ${dir}wifi_notified
 					_new_count=$((_new_count + 1))
 					local _ssid=$(echo "$wifi_cur_ssids" | awk -v n=$((_idx+1)) '{print $n}')
@@ -1668,6 +1679,15 @@ function login_send(){
 						echo "$_now" > "$_offline_file"
 					fi
 				done
+			fi
+
+			# 保存 pending 列表：只保留当前仍在线的（已确认的已移入 wifi_notified，消失的不再需要）
+			if [ -f "${dir}wifi_pending" ]; then
+				local _wp_new=""
+				for _wm in $(cat ${dir}wifi_pending 2>/dev/null); do
+					echo "$wifi_cur_macs" | grep -q -i -w "${_wm}" && _wp_new="${_wp_new}${_wp_new:+ }${_wm}"
+				done
+				echo "$_wp_new" > ${dir}wifi_pending
 			fi
 		fi
 	fi
