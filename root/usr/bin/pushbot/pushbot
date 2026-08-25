@@ -1561,12 +1561,20 @@ function login_send(){
 				_idx=$((_idx + 1))
 				done
 				if [ "$_new_count" -gt "0" ]; then
-					# 构造 MAC 显示文本
+					# 构造 MAC 显示文本（优先显示主机名，无匹配则回落 MAC）
 					local _mac_text=""
 					if [ "$_new_count" -eq 1 ]; then
-						_mac_text=$(echo "$_new_macs" | awk '{print $1}')
+						local _dev_mac=$(echo "$_new_macs" | awk '{print $1}')
+						local _dev_name=$(getname "" "${_dev_mac}")
+						[ "$_dev_name" = "unknown" ] && _mac_text="${_dev_mac}" || _mac_text="${_dev_name}（${_dev_mac}）"
 					elif [ "$_new_count" -le 3 ]; then
-						_mac_text=$(echo "$_new_macs" | sed 's/^ //;s/ /, /g')
+						local _parts=""
+						for _m in $_new_macs; do
+							local _n=$(getname "" "${_m}")
+							[ "$_n" = "unknown" ] && _n="${_m}"
+							_parts="${_parts}${_parts:+, }${_n}"
+						done
+						_mac_text="${_parts}"
 					else
 						_mac_text="多个设备"
 					fi
