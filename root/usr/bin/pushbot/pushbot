@@ -1321,10 +1321,8 @@ function cputop(){
 # 生成日志监控文件，避免后台影响 wait 语句
 function get_syslog(){
 	kill -9 `pgrep -f "logread -f -p notice"` 2>/dev/null
-	kill -9 `pgrep -f "logread -f -p kern"` 2>/dev/null
 	[ -z "$web_logged" ] && [ -z "$ssh_logged" ] && [ -z "$web_login_failed" ] && [ -z "$ssh_login_failed" ] && [ -z "$wifi_connected" ] && [ -z "$wifi_auth_failed" ] && return
 	rm -f ${dir}login_monitor >/dev/null 2>&1
-	rm -f ${dir}wifi_check >/dev/null 2>&1
 
 cat>${dir}get_syslog<<EOF
 #!/bin/sh
@@ -1333,10 +1331,6 @@ EOF
 	chmod 0755 ${dir}get_syslog && ${dir}get_syslog
 	rm -f ${dir}get_syslog >/dev/null 2>&1
 
-	# WiFi 日志监听：仅当 WiFi 选项开启且有无线设备时
-	# logread -f 无法捕获 kern 级别日志（MT798x 等平台），改用定时 logread 读取
-	# 标准 hostapd 的 WiFi 日志走 daemon.notice，已被 notice 监听覆盖
-	# 这里仅作为 fallback，WiFi 日志的获取在 login_send 里通过 logread 完成
 }
 
 # 登录提醒通知
@@ -1528,32 +1522,35 @@ function login_send(){
 
 	# ── WiFi 连接/认证失败检测 ──
 	# MT798x 等内核级 WiFi 日志不被 logread -f 捕获，改用 logread 读取最近日志
-	# 标准 hostapd 日志走 daemon.notice，已被 notice 监听覆盖
 	if [ ! -z "$wifi_connected" ] || [ ! -z "$wifi_auth_failed" ]; then
 		if [ ! -z "$wlan_interface" ]; then
-			# 读取最近 30 秒的全部日志，过滤 WiFi 事件
-			local wifi_log=$(logread 2>/dev/null | tail -200)
-			local wifi_file="${dir}wifi_check"
-			echo "$wifi_log" > "$wifi_file"
-			# WiFi 连接成功：标准 hostapd 的 AP-STA-CONNECTED 或 MT798x 的 AP SETKEYS DONE
-			# 去重：同一 MAC 在本次检测周期内只通知一次
-			local wifi_macs_seen=""
-			local wifi_connected_lines=$(echo "$wifi_log" | grep -i "AP-STA-CONNECTED\|AP SETKEYS DONE")
-			if [ ! -z "$wifi_connected_lines" ]; then
-				echo "$wifi_connected_lines" | while read -r line; do
-					# 提取 MAC 地址（最后的 XX:XX:XX:XX:XX:XX）
-					local wifi_mac=$(echo "$line" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | tail -1)
+			# 获取当前在线 WiFi 设备 MAC 列表（iwinfo 兼容 MTK 闭源和标准开源驱动）
+			local wifi_cur_macs=""
+			for _wif in $wlan_interface; do
+				local _assoc=$(iwinfo ${_wif} assoclist 2>/dev/null)
+				[ ! -z "$_assoc" ] && [ "$_assoc" != "No station connected" ] && {
+					local _macs=$(echo "$_assoc" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | tr 'A-Z' 'a-z')
+					wifi_cur_macs="${wifi_cur_macs} ${_macs}"
+				}
+			done
+
+			# 读取上次在线列表
+			local wifi_prev_macs=""
+			[ -f "${dir}wifi_cur" ] && wifi_prev_macs=$(cat ${dir}wifi_cur 2>/dev/null)
+			# 保存当前列表
+			echo "$wifi_cur_macs" > ${dir}wifi_cur
+
+			# WiFi 连接通知：当前有、上次没有 = 新连接
+			if [ ! -z "$wifi_connected" ]; then
+				for wifi_mac in $wifi_cur_macs; do
 					[ -z "$wifi_mac" ] && continue
-					# 去重：同一 MAC 已处理过则跳过
-					echo "$wifi_macs_seen" | grep -q -i "$wifi_mac" && continue
-					wifi_macs_seen="${wifi_macs_seen} ${wifi_mac}"
-					# 漫游/重连过滤：已知在线设备的 MAC 不触发通知和日志
-					[ -f "${dir}ipAddress" ] && cat ${dir}ipAddress | grep -q -i -w "${wifi_mac}" && continue
-					# 同一 MAC 在本次启动期间不重复通知
+					# 已通知过的 MAC 不重复
 					[ -f "${dir}wifi_notified" ] && grep -q -i -w "${wifi_mac}" ${dir}wifi_notified 2>/dev/null && continue
+					# 上次在线列表里有 = 持续在线，不通知
+					echo "$wifi_prev_macs" | grep -q -i -w "${wifi_mac}" && continue
 					echo "$wifi_mac" >> ${dir}wifi_notified
 					echo "`date "+%Y-%m-%d %H:%M:%S"` WiFi 设备 ${wifi_mac} 已连接" >> ${logfile}
-					local wifi_time=$(echo "$line" | awk '{print $1" "$2" "$3}')
+					local wifi_time=$(date "+%Y-%m-%d %H:%M:%S")
 					if [ "$table_enable" = "1" ]; then
 						local LF='\n'
 						local wifi_info="${LF}| **时间** | ${wifi_time} |${LF}| --- | --- |${LF}| **MAC** | ${wifi_mac} |"
@@ -1581,51 +1578,58 @@ function login_send(){
 					fi
 				done
 			fi
-		fi
 
-		# WiFi 认证失败：标准 hostapd 的 PSK-MISMATCH 或 MT798x 的 sae_handle_auth 失败
-		if [ ! -z "$wifi_auth_failed" ]; then
-			local wifi_fail_lines=$(cat "$wifi_file" 2>/dev/null | grep -i "PSK-MISMATCH\|deauthenticated due to local auth failure\|verify confirm fail\|EAPOL-Key MIC invalid")
-			if [ ! -z "$wifi_fail_lines" ]; then
-				# 去重：同一批次只通知一次，需达到阈值
-				local wifi_fail_count=$(echo "$wifi_fail_lines" | wc -l)
-				if [ "$wifi_fail_count" -ge "${login_max_num:-5}" ]; then
-				local wifi_fail_time=$(echo "$wifi_fail_lines" | tail -1 | awk '{print $1" "$2" "$3}')
-				# 提取 MAC（标准 hostapd 有 MAC，MT798x 可能没有）
-				local wifi_fail_mac=$(echo "$wifi_fail_lines" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | tail -1)
-				if [ "$table_enable" = "1" ]; then
-					local LF='\n'
-					local wifi_fail_info="${LF}| **时间** | ${wifi_fail_time} |${LF}| --- | --- |"
-					[ ! -z "$wifi_fail_mac" ] && wifi_fail_info="${wifi_fail_info}${LF}| **MAC** | ${wifi_fail_mac} |"
-					wifi_fail_info="${wifi_fail_info}${LF}| **失败次数** | ${wifi_fail_count} |"
-					if [ -z "$title" ]; then
-						title="WiFi 认证失败警告"
-						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${wifi_fail_info}"
-					elif ( echo "$title"|grep -q "WiFi" ); then
-						content="${content}${str_splitline}${wifi_fail_info}"
+			# WiFi 离线通知：上次有、当前没有 + 离线时长 > sleeptime*2
+			if [ ! -z "$wifi_auth_failed" ]; then
+				local _now=$(date +%s)
+				for wifi_mac in $wifi_prev_macs; do
+					[ -z "$wifi_mac" ] && continue
+					echo "$wifi_cur_macs" | grep -q -i -w "${wifi_mac}" && continue
+					# 已离线通知过的 MAC 不重复
+					[ -f "${dir}wifi_offline_notified" ] && grep -q -i -w "${wifi_mac}" ${dir}wifi_offline_notified 2>/dev/null && continue
+					# 记录首次发现离线时间
+					local _offline_file="${dir}wifi_offline_${wifi_mac}"
+					if [ -f "$_offline_file" ]; then
+						local _first_seen=$(cat "$_offline_file" 2>/dev/null)
+						local _duration=$((_now - _first_seen))
+						if [ "$_duration" -ge "$((sleeptime * 2))" ]; then
+							echo "$wifi_mac" >> ${dir}wifi_offline_notified
+							rm -f "$_offline_file"
+							echo "`date "+%Y-%m-%d %H:%M:%S"` WiFi 设备 ${wifi_mac} 已离线" >> ${logfile}
+							local wifi_time=$(date "+%Y-%m-%d %H:%M:%S")
+							local wifi_offline_dur=$(time_for_humans $_duration)
+							if [ "$table_enable" = "1" ]; then
+								local LF='\n'
+								local wifi_info="${LF}| **时间** | ${wifi_time} |${LF}| --- | --- |${LF}| **MAC** | ${wifi_mac} |${LF}| **离线时长** | ${wifi_offline_dur} |"
+								if [ -z "$title" ]; then
+									title="WiFi 设备已离线"
+									content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 离线${font_end}${str_title_end}${wifi_info}"
+								elif ( echo "$title"|grep -q "WiFi" ); then
+									title="${wifi_mac} ${title}"
+									content="${content}${str_splitline}${wifi_info}"
+								else
+									title="设备状态变化"
+									content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 离线${font_end}${str_title_end}${wifi_info}"
+								fi
+							else
+								if [ -z "$title" ]; then
+									title="WiFi 设备已离线"
+									content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 离线${font_end}${str_title_end}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}MAC：${str_space}${wifi_mac}${str_linefeed}${str_tab}离线时长：${str_space}${wifi_offline_dur}"
+								elif ( echo "$title"|grep -q "WiFi" ); then
+									title="${wifi_mac} ${title}"
+									content="${content}${str_splitline}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}MAC：${str_space}${wifi_mac}${str_linefeed}${str_tab}离线时长：${str_space}${wifi_offline_dur}"
+								else
+									title="设备状态变化"
+									content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 离线${font_end}${str_title_end}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}MAC：${str_space}${wifi_mac}${str_linefeed}${str_tab}离线时长：${str_space}${wifi_offline_dur}"
+								fi
+							fi
+						fi
 					else
-						title="设备状态变化"
-						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${wifi_fail_info}"
+						echo "$_now" > "$_offline_file"
 					fi
-				else
-					local wifi_fail_detail="时间：${wifi_fail_time}"
-					[ ! -z "$wifi_fail_mac" ] && wifi_fail_detail="${wifi_fail_detail}${str_linefeed}${str_tab}MAC：${str_space}${wifi_fail_mac}"
-					wifi_fail_detail="${wifi_fail_detail}${str_linefeed}${str_tab}失败次数：${str_space}${wifi_fail_count}"
-					if [ -z "$title" ]; then
-						title="WiFi 认证失败警告"
-						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${str_linefeed}${str_tab}${wifi_fail_detail}"
-					elif ( echo "$title"|grep -q "WiFi" ); then
-						content="${content}${str_splitline}${str_linefeed}${str_tab}${wifi_fail_detail}"
-					else
-						title="设备状态变化"
-						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${str_linefeed}${str_tab}${wifi_fail_detail}"
-					fi
-				fi
-				fi
+				done
 			fi
 		fi
-
-		rm -f "$wifi_file"
 	fi
 
 }
@@ -2334,7 +2338,6 @@ fi
 pushbot_init;[ $? -eq 1 ] && echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】读取设置出错，请检查设置项 " >> ${logfile} && exit
 echo "`date "+%Y-%m-%d %H:%M:%S"` 【初始化】载入在线设备" >> ${logfile}
 > ${dir}send_enable.lock && pushbot_first && deltemp
-rm -f ${dir}wifi_notified >/dev/null 2>&1
 echo "`date "+%Y-%m-%d %H:%M:%S"` 【初始化】初始化完成" >> ${logfile}
 
 # 循环（仅当明确启用 =1 时运行；0/空/读取失败均不进入，脚本自然退出，不空转）
