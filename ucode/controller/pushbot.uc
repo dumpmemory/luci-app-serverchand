@@ -348,13 +348,23 @@ return {
 
 		/* wireless interfaces detection */
 		let wifi_ifs = [];
-		let wf = popen("ls /sys/class/net/*/wireless 2>/dev/null | sed 's|/sys/class/net/||;s|/wireless||;s/:$//'", "r");
+		/* 方式1: iw dev（开源驱动 mac80211） */
+		let wf = popen("iw dev 2>/dev/null | grep Interface | awk '{print $2}'", "r");
 		if (wf) {
 			for (let line = wf.read("line"); line; line = wf.read("line")) {
 				let n = replace(line, /\s+/, "");
-				if (length(n) > 0) push(wifi_ifs, n);
+				if (length(n) > 0 && wifi_ifs.indexOf(n) < 0) push(wifi_ifs, n);
 			}
 			wf.close();
+		}
+		/* 方式2: /sys/class/net/*/wireless（MTK 闭源等 iw 无输出的平台） */
+		let wf2 = popen("ls /sys/class/net/*/wireless 2>/dev/null | sed 's|/sys/class/net/||;s|/wireless||;s/:$//'", "r");
+		if (wf2) {
+			for (let line = wf2.read("line"); line; line = wf2.read("line")) {
+				let n = replace(line, /\s+/, "");
+				if (length(n) > 0 && wifi_ifs.indexOf(n) < 0) push(wifi_ifs, n);
+			}
+			wf2.close();
 		}
 		sysinfo.wifi_ifs = wifi_ifs;
 

@@ -50,8 +50,11 @@ function read_config(){
 	[ -z "$pushbot_ipv4" ] && pushbot_ipv4=0
 	[ -z "$pushbot_ipv6" ] && pushbot_ipv6=0
 	[ "$iw_version" ] && wlan_interface=`iw dev|grep Interface|awk '{print $2}'` >/dev/null 2>&1
-	# MT798x 等平台 iw 无输出，用 /sys/class/net/*/wireless 检测无线接口
-	[ -z "$wlan_interface" ] && wlan_interface=$(ls /sys/class/net/*/wireless 2>/dev/null | sed 's|/sys/class/net/||;s|/wireless||;s/:$//')
+	# 补充检测：/sys/class/net/*/wireless 覆盖 MTK 闭源等 iw 无输出的平台
+	local _wifi_sys=$(ls /sys/class/net/*/wireless 2>/dev/null | sed 's|/sys/class/net/||;s|/wireless||;s/:$//')
+	for _w in $_wifi_sys; do
+		echo "$wlan_interface" | grep -q -w "$_w" || wlan_interface="${wlan_interface} ${_w}"
+	done
 	[ -z "$up_timeout" ] || [ "$up_timeout" -eq "0" ] && up_timeout="2"
 	[ -z "$down_timeout" ] || [ "$down_timeout" -eq "0" ] && down_timeout="20";down_timeout=`expr ${down_timeout} / 2 + 1`
 	[ -z "$timeout_retry_count" ] && timeout_retry_count="2";[ "$timeout_retry_count" -eq "0" ] && timeout_retry_count="1"
@@ -1566,12 +1569,12 @@ function login_send(){
 					if [ "$_new_count" -eq 1 ]; then
 						local _dev_mac=$(echo "$_new_macs" | awk '{print $1}')
 						local _dev_name=$(getname "" "${_dev_mac}")
-						[ -z "$_dev_name" ] || [ "$_dev_name" = "unknown" ] && _mac_text="${_dev_mac}" || _mac_text="${_dev_name}"
+						{ [ -z "$_dev_name" ] || [ "$_dev_name" = "unknown" ]; } && _mac_text="${_dev_mac}" || _mac_text="${_dev_name}"
 					elif [ "$_new_count" -le 3 ]; then
 						local _parts=""
 						for _m in $_new_macs; do
 							local _n=$(getname "" "${_m}")
-							[ -z "$_n" ] || [ "$_n" = "unknown" ] && _n="${_m}"
+							{ [ -z "$_n" ] || [ "$_n" = "unknown" ]; } && _n="${_m}"
 							_parts="${_parts}${_parts:+, }${_n}"
 						done
 						_mac_text="${_parts}"
@@ -1596,29 +1599,19 @@ function login_send(){
 						done
 						local wifi_info="${LF}| **设备** | **SSID** |${LF}| --- | --- |${wifi_detail_rows}"
 						if [ -z "$title" ]; then
-							title="WiFi 设备已连接"
-							content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${wifi_info}"
-						elif ( echo "$title"|grep -q "WiFi" ); then
-							title="${_mac_text} ${title}"
-							content="${content}${str_splitline}${wifi_info}"
-						else
-							title="设备状态变化"
-							content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${wifi_info}"
+							title="${_mac_text} WiFi 设备已连接"
 						fi
+						content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${wifi_info}"
 					else
 						if [ -z "$title" ]; then
-							title="WiFi 设备已连接"
-						elif ( echo "$title"|grep -q "WiFi" ); then
-							title="${_mac_text} ${title}"
-						else
-							title="设备状态变化"
+							title="${_mac_text} WiFi 设备已连接"
 						fi
 						content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}"
 						local _didx_t=0
 						for _dm_t in $_new_macs; do
 							local _dn_t=$(echo "$_new_ssids" | awk -v n=$((_didx_t+1)) '{print $n}')
 							local _dname_t=$(getname "" "${_dm_t}")
-							[ -z "$_dname_t" ] || [ "$_dname_t" = "unknown" ] && _dname_t="${_dm_t}"
+							{ [ -z "$_dname_t" ] || [ "$_dname_t" = "unknown" ]; } && _dname_t="${_dm_t}"
 							content="${content}${str_linefeed}${str_tab}${_dname_t}（${_dn_t}）"
 							_didx_t=$((_didx_t + 1))
 						done
@@ -1627,7 +1620,7 @@ function login_send(){
 			fi
 
 			# WiFi 离线通知：上次有、当前没有 + 离线时长 > sleeptime*2
-			if [ ! -z "$wifi_auth_failed" ]; then
+			if [ ! -z "$wifi_connected" ]; then
 				local _now=$(date +%s)
 				for wifi_mac in $wifi_prev_macs; do
 					[ -z "$wifi_mac" ] && continue
@@ -1679,6 +1672,50 @@ function login_send(){
 		fi
 	fi
 
+	# WiFi 认证失败检测（基于 logread，兼容 MTK 闭源和开源驱动）
+	# MTK 闭源: verify confirm fail（kern.err）
+	# 标准 hostapd: PSK-MISMATCH / deauthenticated due to local auth failure / EAPOL-Key MIC invalid（daemon.notice）
+	# 增量检测：记录总行数，只有新增或首次达阈值才通知
+	if [ ! -z "$wifi_auth_failed" ]; then
+		local _wifi_cur_log=$(logread 2>/dev/null | tail -200)
+		local _wifi_cur_count=$(echo "$_wifi_cur_log" | grep -i "PSK-MISMATCH\|deauthenticated due to local auth failure\|verify confirm fail\|EAPOL-Key MIC invalid" | wc -l)
+		local _wifi_prev_count=0
+		[ -f "${dir}wifi_fail_count" ] && _wifi_prev_count=$(cat ${dir}wifi_fail_count 2>/dev/null)
+		echo "$_wifi_cur_count" > ${dir}wifi_fail_count
+		local _new_fails=$((_wifi_cur_count - _wifi_prev_count))
+		[ "$_new_fails" -lt "0" ] && _new_fails=0
+		local _threshold=${login_max_num:-5}
+		if [ "$_wifi_cur_count" -ge "$_threshold" ] && { [ "$_wifi_prev_count" -lt "$_threshold" ] || [ "$_new_fails" -gt "0" ]; }; then
+			local _wifi_fail_mac=$(echo "$_wifi_cur_log" | grep -i "PSK-MISMATCH\|deauthenticated due to local auth failure\|verify confirm fail\|EAPOL-Key MIC invalid" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | tail -1)
+			echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}WiFi 认证失败 ${_wifi_cur_count} 次${_wifi_fail_mac:+（MAC: ${_wifi_fail_mac}）}" >> ${logfile}
+			if [ "$table_enable" = "1" ]; then
+				local LF='\n'
+				local _wifi_fail_info="${LF}| **失败次数** | ${_wifi_cur_count} |"
+				[ ! -z "$_wifi_fail_mac" ] && _wifi_fail_info="${_wifi_fail_info}${LF}| **MAC** | ${_wifi_fail_mac} |"
+				if [ -z "$title" ]; then
+					title="WiFi 认证失败警告"
+					content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${_wifi_fail_info}"
+				elif ( echo "$title"|grep -q "WiFi" ); then
+					content="${content}${str_splitline}${_wifi_fail_info}"
+				else
+					title="设备状态变化"
+					content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${_wifi_fail_info}"
+				fi
+			else
+				local _wifi_fail_detail="失败次数：${_wifi_cur_count}"
+				[ ! -z "$_wifi_fail_mac" ] && _wifi_fail_detail="MAC：${_wifi_fail_mac}${str_linefeed}${str_tab}${_wifi_fail_detail}"
+				if [ -z "$title" ]; then
+					title="WiFi 认证失败警告"
+					content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${str_linefeed}${str_tab}${_wifi_fail_detail}"
+				elif ( echo "$title"|grep -q "WiFi" ); then
+					content="${content}${str_splitline}${str_linefeed}${str_tab}${_wifi_fail_detail}"
+				else
+					title="设备状态变化"
+					content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${str_linefeed}${str_tab}${_wifi_fail_detail}"
+				fi
+			fi
+	fi
+	fi
 }
 
 # 白名单匹配：支持单个 IP 或标准 IP 段（CIDR，如 10.1.1.0/24、2001:db8::/32）
@@ -1953,7 +1990,7 @@ function add_ip_black(){
 		if command -v nft >/dev/null 2>&1; then
 			nft list set inet fw4 pushbot_blacklist >/dev/null 2>&1 || need_update=true
 			nft list set inet fw4 pushbot_blacklist6 >/dev/null 2>&1 || need_update=true
-			nft list chain inet fw4 input 2>/dev/null | grep -qE "@pushbot_blacklist([^6]|$)" || need_update=true
+			grep "@pushbot_blacklist" | grep -v "@pushbot_blacklist6" | grep -q . || need_update=true
 		else
 			ipset list ip_blacklist >/dev/null 2>&1 || need_update=true
 			iptables -C INPUT -m set --match-set ip_blacklist src -j DROP >/dev/null 2>&1 || need_update=true
@@ -2075,7 +2112,7 @@ function add_ip_black(){
 			nft add set inet fw4 pushbot_blacklist6 { type ipv6_addr\; timeout ${bl_timeout_sec}s\; } 2>/dev/null || true
 		fi
 		# 规则用 insert（链首优先，不被 accept 抢先），且只在缺失时插入
-		if ! nft list chain inet fw4 input 2>/dev/null | grep -qE "@pushbot_blacklist([^6]|$)"; then
+		if ! nft list chain inet fw4 input 2>/dev/null | grep "@pushbot_blacklist" | grep -v "@pushbot_blacklist6" | grep -q .; then
 			nft insert rule inet fw4 input ip saddr @pushbot_blacklist drop 2>/dev/null || true
 		fi
 		if ! nft list chain inet fw4 input 2>/dev/null | grep -q "@pushbot_blacklist6"; then
