@@ -50,6 +50,8 @@ function read_config(){
 	[ -z "$pushbot_ipv4" ] && pushbot_ipv4=0
 	[ -z "$pushbot_ipv6" ] && pushbot_ipv6=0
 	[ "$iw_version" ] && wlan_interface=`iw dev|grep Interface|awk '{print $2}'` >/dev/null 2>&1
+	# MT798x 等平台 iw 无输出，用 /sys/class/net/*/wireless 检测无线接口
+	[ -z "$wlan_interface" ] && wlan_interface=$(ls /sys/class/net/*/wireless 2>/dev/null | sed 's|/sys/class/net/||;s|/wireless||')
 	[ -z "$up_timeout" ] || [ "$up_timeout" -eq "0" ] && up_timeout="2"
 	[ -z "$down_timeout" ] || [ "$down_timeout" -eq "0" ] && down_timeout="20";down_timeout=`expr ${down_timeout} / 2 + 1`
 	[ -z "$timeout_retry_count" ] && timeout_retry_count="2";[ "$timeout_retry_count" -eq "0" ] && timeout_retry_count="1"
