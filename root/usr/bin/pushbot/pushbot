@@ -1585,7 +1585,16 @@ function login_send(){
 					echo "`date "+%Y-%m-%d %H:%M:%S"` WiFi 设备 ${_mac_text} 已连接" >> ${logfile}
 					if [ "$table_enable" = "1" ]; then
 						local LF='\n'
-						local wifi_info="${LF}| **时间** | ${wifi_time} |${LF}| --- | --- |${LF}| **设备** | ${_mac_text} |${LF}| **SSID** | ${_ssid_text} |"
+						local wifi_detail_rows=""
+						local _didx=0
+						for _dm in $_new_macs; do
+							local _dn=$(echo "$_new_ssids" | awk -v n=$((_didx+1)) '{print $n}')
+							local _dname=$(getname "" "${_dm}")
+							[ "$_dname" = "unknown" ] && _dname="${_dm}"
+							wifi_detail_rows="${wifi_detail_rows}${LF}| **${_dname}** | ${_dn} |"
+							_didx=$((_didx + 1))
+						done
+						local wifi_info="${LF}| **时间** | ${wifi_time} |${LF}| --- | --- |${wifi_detail_rows}"
 						if [ -z "$title" ]; then
 							title="WiFi 设备已连接"
 							content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${wifi_info}"
@@ -1599,13 +1608,20 @@ function login_send(){
 					else
 						if [ -z "$title" ]; then
 							title="WiFi 设备已连接"
-							content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}设备：${str_space}${_mac_text}${str_linefeed}${str_tab}SSID：${str_space}${_ssid_text}"
+							local _didx_t=0
+						for _dm_t in $_new_macs; do
+							local _dn_t=$(echo "$_new_ssids" | awk -v n=$((_didx_t+1)) '{print $n}')
+							local _dname_t=$(getname "" "${_dm_t}")
+							[ "$_dname_t" = "unknown" ] && _dname_t="${_dm_t}"
+							content="${content}${str_linefeed}${str_tab}${_dname_t}（${_dn_t}）"
+							_didx_t=$((_didx_t + 1))
+						done
 						elif ( echo "$title"|grep -q "WiFi" ); then
 							title="${_mac_text} ${title}"
-							content="${content}${str_splitline}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}设备：${str_space}${_mac_text}${str_linefeed}${str_tab}SSID：${str_space}${_ssid_text}"
+							content="${content}${str_splitline}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}"
 						else
 							title="设备状态变化"
-							content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}设备：${str_space}${_mac_text}${str_linefeed}${str_tab}SSID：${str_space}${_ssid_text}"
+							content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}"
 						fi
 					fi
 				fi
