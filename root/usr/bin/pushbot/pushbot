@@ -1526,11 +1526,16 @@ function login_send(){
 		if [ ! -z "$wlan_interface" ]; then
 			# 获取当前在线 WiFi 设备 MAC 列表（iwinfo 兼容 MTK 闭源和标准开源驱动）
 			local wifi_cur_macs=""
+			local wifi_cur_ssids=""
 			for _wif in $wlan_interface; do
 				local _assoc=$(iwinfo ${_wif} assoclist 2>/dev/null)
 				[ ! -z "$_assoc" ] && [ "$_assoc" != "No station connected" ] && {
 					local _macs=$(echo "$_assoc" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | tr 'A-Z' 'a-z')
-					wifi_cur_macs="${wifi_cur_macs} ${_macs}"
+					local _ssid=$(iwinfo ${_wif} info 2>/dev/null | sed -n 's/.*ESSID: *"//;s/"$//p')
+					for _m in $_macs; do
+						wifi_cur_macs="${wifi_cur_macs} ${_m}"
+						wifi_cur_ssids="${wifi_cur_ssids} ${_ssid}"
+					done
 				}
 			done
 
@@ -1542,6 +1547,7 @@ function login_send(){
 
 			# WiFi 连接通知：当前有、上次没有 = 新连接
 			if [ ! -z "$wifi_connected" ]; then
+				local _idx=0
 				for wifi_mac in $wifi_cur_macs; do
 					[ -z "$wifi_mac" ] && continue
 					# 已通知过的 MAC 不重复
@@ -1551,9 +1557,12 @@ function login_send(){
 					echo "$wifi_mac" >> ${dir}wifi_notified
 					echo "`date "+%Y-%m-%d %H:%M:%S"` WiFi 设备 ${wifi_mac} 已连接" >> ${logfile}
 					local wifi_time=$(date "+%Y-%m-%d %H:%M:%S")
+					# 通过索引获取对应 SSID
+					local _ssid=$(echo "$wifi_cur_ssids" | awk -v n=$((_idx+1)) '{print $n}')
+					[ -z "$_ssid" ] && _ssid="unknown"
 					if [ "$table_enable" = "1" ]; then
 						local LF='\n'
-						local wifi_info="${LF}| **时间** | ${wifi_time} |${LF}| --- | --- |${LF}| **MAC** | ${wifi_mac} |"
+						local wifi_info="${LF}| **时间** | ${wifi_time} |${LF}| --- | --- |${LF}| **MAC** | ${wifi_mac} |${LF}| **SSID** | ${_ssid} |"
 						if [ -z "$title" ]; then
 							title="WiFi 设备已连接"
 							content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${wifi_info}"
@@ -1567,13 +1576,13 @@ function login_send(){
 					else
 						if [ -z "$title" ]; then
 							title="WiFi 设备已连接"
-							content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}MAC：${str_space}${wifi_mac}"
+							content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}MAC：${str_space}${wifi_mac}${str_linefeed}${str_tab}SSID：${str_space}${_ssid}"
 						elif ( echo "$title"|grep -q "WiFi" ); then
 							title="${wifi_mac} ${title}"
-							content="${content}${str_splitline}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}MAC：${str_space}${wifi_mac}"
+							content="${content}${str_splitline}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}MAC：${str_space}${wifi_mac}${str_linefeed}${str_tab}SSID：${str_space}${_ssid}"
 						else
 							title="设备状态变化"
-							content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}MAC：${str_space}${wifi_mac}"
+							content="${content}${str_splitline}${str_title_start}${font_success} WiFi 连接${font_end}${str_title_end}${str_linefeed}${str_tab}时间：${str_space}${wifi_time}${str_linefeed}${str_tab}MAC：${str_space}${wifi_mac}${str_linefeed}${str_tab}SSID：${str_space}${_ssid}"
 						fi
 					fi
 				done
