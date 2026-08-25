@@ -1566,7 +1566,7 @@ function login_send(){
 					if [ "$_new_count" -eq 1 ]; then
 						local _dev_mac=$(echo "$_new_macs" | awk '{print $1}')
 						local _dev_name=$(getname "" "${_dev_mac}")
-						[ "$_dev_name" = "unknown" ] && _mac_text="${_dev_mac}" || _mac_text="${_dev_name}（${_dev_mac}）"
+						[ "$_dev_name" = "unknown" ] && _mac_text="${_dev_mac}" || _mac_text="${_dev_name}"
 					elif [ "$_new_count" -le 3 ]; then
 						local _parts=""
 						for _m in $_new_macs; do
