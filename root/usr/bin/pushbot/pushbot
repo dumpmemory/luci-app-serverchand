@@ -1528,18 +1528,30 @@ function login_send(){
 	if [ ! -z "$wifi_connected" ] || [ ! -z "$wifi_auth_failed" ]; then
 		if [ ! -z "$wlan_interface" ]; then
 			# 获取当前在线 WiFi 设备 MAC 列表（iwinfo 兼容 MTK 闭源和标准开源驱动）
+			# 两套驱动统一精准判断：
+			#   开源 mac80211：iw station get → authorized=yes（WPA 握手完成）
+			#   MTK 闭源：dmesg SETKEYS DONE（内核级 WPA 握手完成标记）
 			local wifi_cur_macs=""
 			local wifi_cur_ssids=""
+			# 闭源驱动：一次性读取 dmesg SETKEYS DONE 的 MAC 列表（0.02s）
+			local _setkeys_macs=""
+			if ! iw dev >/dev/null 2>&1; then
+				_setkeys_macs=$(dmesg 2>/dev/null | grep "SETKEYS DONE" | grep -ioE "from [0-9a-f:]+" | sed 's/from //i' | tr 'A-Z' 'a-z')
+			fi
 			for _wif in $wlan_interface; do
 				local _assoc=$(iwinfo ${_wif} assoclist 2>/dev/null)
 				[ ! -z "$_assoc" ] && [ "$_assoc" != "No station connected" ] && {
 					local _macs=$(echo "$_assoc" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | tr 'A-Z' 'a-z')
 					local _ssid=$(iwinfo ${_wif} info 2>/dev/null | sed -n 's/.*ESSID: *"//;s/"$//p')
 					for _m in $_macs; do
-						# 开源 mac80211：用 iw 检查 authorized（WPA 握手完成才算真连接）
-						# MTK 闭源 iw 不可用 → _auth 为空 → 仍收入，由二次确认窗口过滤
-						local _auth=$(iw dev ${_wif} station get $_m 2>/dev/null | grep "authorized:" | awk '{print $2}')
-						if [ -z "$_auth" ] || [ "$_auth" = "yes" ]; then
+						local _authorized=""
+						# 开源 mac80211：用 iw 检查 authorized
+						_authorized=$(iw dev ${_wif} station get $_m 2>/dev/null | grep "authorized:" | awk '{print $2}')
+						# MTK 闭源：iw 不可用 → _authorized 为空 → 改用 dmesg SETKEYS DONE
+						if [ -z "$_authorized" ] && [ ! -z "$_setkeys_macs" ]; then
+							echo "$_setkeys_macs" | grep -q -i -w "$_m" && _authorized="yes"
+						fi
+						if [ "$_authorized" = "yes" ]; then
 							wifi_cur_macs="${wifi_cur_macs} ${_m}"
 							wifi_cur_ssids="${wifi_cur_ssids} ${_ssid}"
 						fi
@@ -1553,24 +1565,14 @@ function login_send(){
 			# 保存当前列表
 			echo "$wifi_cur_macs" > ${dir}wifi_cur
 
-			# 读取待确认列表（第一次出现的 MAC，需第二次仍在才通知）
-			local wifi_pending_macs=""
-			[ -f "${dir}wifi_pending" ] && wifi_pending_macs=$(cat ${dir}wifi_pending 2>/dev/null)
-
-			# WiFi 连接通知：当前有、上次没有 = 新连接（单台显示MAC，多台≤3拼接MAC，>3显示"多个设备"）
-			# 需两次检测间隔均在 assoclist 才触发，避免 auth fail 时短暂 associate 误判
+			# WiFi 连接通知：当前有、上次没有 = 新连接
+			# 两套驱动已在采集阶段统一过滤，进到这里的都是 authorized=yes 的真连接
 			if [ ! -z "$wifi_connected" ]; then
 				local _new_macs="" _new_ssids="" _new_count=0 _idx=0
 				for wifi_mac in $wifi_cur_macs; do
 					[ -z "$wifi_mac" ] && continue
 					[ -f "${dir}wifi_notified" ] && grep -q -i -w "${wifi_mac}" ${dir}wifi_notified 2>/dev/null && continue
 					echo "$wifi_prev_macs" | grep -q -i -w "${wifi_mac}" && continue
-					# 第一次出现：记入 pending，不通知
-					if ! echo "$wifi_pending_macs" | grep -q -i -w "${wifi_mac}"; then
-						echo "$wifi_mac" >> ${dir}wifi_pending
-						continue
-					fi
-					# 第二次仍在 assoclist：确认已连接，正式通知
 					echo "$wifi_mac" >> ${dir}wifi_notified
 					_new_count=$((_new_count + 1))
 					local _ssid=$(echo "$wifi_cur_ssids" | awk -v n=$((_idx+1)) '{print $n}')
@@ -1651,6 +1653,8 @@ function login_send(){
 						if [ "$_duration" -ge "$((sleeptime * 2))" ]; then
 							echo "$wifi_mac" >> ${dir}wifi_offline_notified
 							rm -f "$_offline_file"
+							# 离线后清除连接通知记录，设备重新连接时可再次通知
+							sed -i "/${wifi_mac}/Id" ${dir}wifi_notified 2>/dev/null
 							echo "`date "+%Y-%m-%d %H:%M:%S"` WiFi 设备 ${wifi_mac} 已离线" >> ${logfile}
 							local wifi_time=$(date "+%Y-%m-%d %H:%M:%S")
 							local wifi_offline_dur=$(time_for_humans $_duration)
@@ -1684,15 +1688,6 @@ function login_send(){
 						echo "$_now" > "$_offline_file"
 					fi
 				done
-			fi
-
-			# 保存 pending 列表：只保留当前仍在线的（已确认的已移入 wifi_notified，消失的不再需要）
-			if [ -f "${dir}wifi_pending" ]; then
-				local _wp_new=""
-				for _wm in $(cat ${dir}wifi_pending 2>/dev/null); do
-					echo "$wifi_cur_macs" | grep -q -i -w "${_wm}" && _wp_new="${_wp_new}${_wp_new:+ }${_wm}"
-				done
-				echo "$_wp_new" > ${dir}wifi_pending
 			fi
 		fi
 	fi
