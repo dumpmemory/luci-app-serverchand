@@ -357,7 +357,7 @@ return {
 			}
 			wf.close();
 		}
-		/* 方式2: /sys/class/net/*/wireless（MTK 闭源等 iw 无输出的平台） */
+		/* 方式2: 遍历 /sys/class/net 下带 wireless 的接口（MTK 闭源等 iw 无输出的平台） */
 		let wf2 = popen("ls /sys/class/net/*/wireless 2>/dev/null | sed 's|/sys/class/net/||;s|/wireless||;s/:$//'", "r");
 		if (wf2) {
 			for (let line = wf2.read("line"); line; line = wf2.read("line")) {
