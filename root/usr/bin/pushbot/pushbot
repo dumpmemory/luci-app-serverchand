@@ -1576,7 +1576,7 @@ function login_send(){
 						done
 						_mac_text="${_parts}"
 					else
-						_mac_text="多个设备"
+						_mac_text="多个"
 					fi
 					# 取第一个 SSID
 					local _ssid_text=$(echo "$_new_ssids" | awk '{print $1}')
