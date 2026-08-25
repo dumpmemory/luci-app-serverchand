@@ -1547,11 +1547,8 @@ function login_send(){
 					# 去重：同一 MAC 已处理过则跳过
 					echo "$wifi_macs_seen" | grep -q -i "$wifi_mac" && continue
 					wifi_macs_seen="${wifi_macs_seen} ${wifi_mac}"
-					# 漫游/重连过滤：已知在线设备的 MAC 不触发通知
+					# 漫游/重连过滤：已知在线设备的 MAC 不触发通知和日志
 					[ -f "${dir}ipAddress" ] && cat ${dir}ipAddress | grep -q -i -w "${wifi_mac}" && continue
-					# 已通知过的 MAC 也不重复通知（写入缓存文件）
-					[ -f "${dir}wifi_notified" ] && grep -q -i -w "${wifi_mac}" ${dir}wifi_notified 2>/dev/null && continue
-					echo "$wifi_mac" >> ${dir}wifi_notified
 					echo "`date "+%Y-%m-%d %H:%M:%S"` WiFi 设备 ${wifi_mac} 已连接" >> ${logfile}
 					local wifi_time=$(echo "$line" | awk '{print $1" "$2" "$3}')
 					if [ "$table_enable" = "1" ]; then
