@@ -1536,8 +1536,13 @@ function login_send(){
 					local _macs=$(echo "$_assoc" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | tr 'A-Z' 'a-z')
 					local _ssid=$(iwinfo ${_wif} info 2>/dev/null | sed -n 's/.*ESSID: *"//;s/"$//p')
 					for _m in $_macs; do
-						wifi_cur_macs="${wifi_cur_macs} ${_m}"
-						wifi_cur_ssids="${wifi_cur_ssids} ${_ssid}"
+						# 开源 mac80211：用 iw 检查 authorized（WPA 握手完成才算真连接）
+						# MTK 闭源 iw 不可用 → _auth 为空 → 仍收入，由二次确认窗口过滤
+						local _auth=$(iw dev ${_wif} station get $_m 2>/dev/null | grep "authorized:" | awk '{print $2}')
+						if [ -z "$_auth" ] || [ "$_auth" = "yes" ]; then
+							wifi_cur_macs="${wifi_cur_macs} ${_m}"
+							wifi_cur_ssids="${wifi_cur_ssids} ${_ssid}"
+						fi
 					done
 				}
 			done
