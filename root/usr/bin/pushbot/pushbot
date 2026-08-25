@@ -1536,12 +1536,17 @@ function login_send(){
 			local wifi_file="${dir}wifi_check"
 			echo "$wifi_log" > "$wifi_file"
 			# WiFi 连接成功：标准 hostapd 的 AP-STA-CONNECTED 或 MT798x 的 AP SETKEYS DONE
+			# 去重：同一 MAC 在本次检测周期内只通知一次
+			local wifi_macs_seen=""
 			local wifi_connected_lines=$(echo "$wifi_log" | grep -i "AP-STA-CONNECTED\|AP SETKEYS DONE")
 			if [ ! -z "$wifi_connected_lines" ]; then
 				echo "$wifi_connected_lines" | while read -r line; do
 					# 提取 MAC 地址（最后的 XX:XX:XX:XX:XX:XX）
 					local wifi_mac=$(echo "$line" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | tail -1)
 					[ -z "$wifi_mac" ] && continue
+					# 去重：同一 MAC 已处理过则跳过
+					echo "$wifi_macs_seen" | grep -q -i "$wifi_mac" && continue
+					wifi_macs_seen="${wifi_macs_seen} ${wifi_mac}"
 					# 漫游/重连过滤：已知在线设备的 MAC 不触发通知
 					[ -f "${dir}ipAddress" ] && cat ${dir}ipAddress | grep -q -i -w "${wifi_mac}" && continue
 					local wifi_time=$(echo "$line" | awk '{print $1" "$2" "$3}')
@@ -1575,9 +1580,9 @@ function login_send(){
 			fi
 		fi
 
-		# WiFi 认证失败：标准 hostapd 的 PSK-MISMATCH/deauth 或 MT798x 的 deauth
+		# WiFi 认证失败：标准 hostapd 的 PSK-MISMATCH 或 MT798x 的 sae_handle_auth 失败
 		if [ ! -z "$wifi_auth_failed" ]; then
-			local wifi_fail_lines=$(cat "$wifi_file" 2>/dev/null | grep -i "PSK-MISMATCH\|deauthenticated due to local auth failure\|deauth.*reason")
+			local wifi_fail_lines=$(cat "$wifi_file" 2>/dev/null | grep -i "PSK-MISMATCH\|deauthenticated due to local auth failure\|verify confirm fail\|EAPOL-Key MIC invalid")
 			if [ ! -z "$wifi_fail_lines" ]; then
 				echo "$wifi_fail_lines" > ${dir}wifi_failed_tmp
 				local wifi_fail_list=$(cat ${dir}wifi_failed_tmp | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | sort -u)
