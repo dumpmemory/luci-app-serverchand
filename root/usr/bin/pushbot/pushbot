@@ -1535,6 +1535,8 @@ function login_send(){
 			local wifi_log=$(logread 2>/dev/null | tail -200)
 			local wifi_file="${dir}wifi_check"
 			echo "$wifi_log" > "$wifi_file"
+			# WiFi 连接成功：标准 hostapd 的 AP-STA-CONNECTED 或 MT798x 的 AP SETKEYS DONE
+			local wifi_connected_lines=$(echo "$wifi_log" | grep -i "AP-STA-CONNECTED\|AP SETKEYS DONE")
 			if [ ! -z "$wifi_connected_lines" ]; then
 				echo "$wifi_connected_lines" | while read -r line; do
 					# 提取 MAC 地址（最后的 XX:XX:XX:XX:XX:XX）

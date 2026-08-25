@@ -1901,7 +1901,7 @@ cuSub.appendChild(mkBtn('{{ _('Traffic DND') }}',cdOn,function(on){updateFlagInp
 	}
 
 	var failSub=document.createElement('div');failSub.id='ct_fail_sub';failSub.style.cssText='margin-top:8px';
-	var failOn=CT_WEB_FAIL||CT_SSH_FAIL;
+	var failOn=CT_WEB_FAIL||CT_SSH_FAIL||(CT_WIFI_IFS&&CT_WIFI_IFS.length>0&&PB_bool('wifi_auth_failed'));
 	failSub.style.display=failOn?'block':'none';
 	failSub.appendChild(mkTxt('login_max_num','{{ _('Failed attempt threshold') }}',CT_LOGIN_MAX,'{{ _('Push alert after exceeding the threshold') }}'));
 
