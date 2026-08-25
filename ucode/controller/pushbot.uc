@@ -348,12 +348,13 @@ return {
 
 		/* wireless interfaces detection */
 		let wifi_ifs = [];
+		let wifi_seen = {};
 		/* 方式1: iw dev（开源驱动 mac80211） */
 		let wf = popen("iw dev 2>/dev/null | grep Interface | awk '{print $2}'", "r");
 		if (wf) {
 			for (let line = wf.read("line"); line; line = wf.read("line")) {
 				let n = replace(line, /\s+/, "");
-				if (length(n) > 0 && wifi_ifs.indexOf(n) < 0) push(wifi_ifs, n);
+				if (length(n) > 0 && !wifi_seen[n]) { wifi_seen[n] = true; push(wifi_ifs, n); }
 			}
 			wf.close();
 		}
@@ -362,7 +363,7 @@ return {
 		if (wf2) {
 			for (let line = wf2.read("line"); line; line = wf2.read("line")) {
 				let n = replace(line, /\s+/, "");
-				if (length(n) > 0 && wifi_ifs.indexOf(n) < 0) push(wifi_ifs, n);
+				if (length(n) > 0 && !wifi_seen[n]) { wifi_seen[n] = true; push(wifi_ifs, n); }
 			}
 			wf2.close();
 		}
