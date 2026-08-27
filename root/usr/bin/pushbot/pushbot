@@ -2237,7 +2237,10 @@ function add_ip_black(){
 				grep -qx "$ip_del6" "${ip_blacklist_path}" || nft delete element inet fw4 pushbot_blacklist6 { $ip_del6 } 2>/dev/null || true
 			done
 		}
-		echo "`date \"+%Y-%m-%d %H:%M:%S\"` 【防火墙】已 nftables 拉黑 ${black_ips}${black_ips6:+,$black_ips6}" >> ${logfile}
+		# 只有实际变化时才输出日志
+		if $need_update; then
+			echo "`date \"+%Y-%m-%d %H:%M:%S\"` 【防火墙】已 nftables 拉黑 ${black_ips}${black_ips6:+,$black_ips6}" >> ${logfile}
+		fi
 		# 回写黑名单文件（v4+v6）以内核 set 为准：超时移除的元素不在此列，自然从文件清除
 		nft list set inet fw4 pushbot_blacklist 2>/dev/null | grep -Eo "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}" > ${ip_blacklist_path}.tmp
 		# v6 只抓 elements 行内的地址（跳过 set 头注释/flags 等单词）
@@ -2274,7 +2277,10 @@ function add_ip_black(){
 		else
 			rm -f ${ip_blacklist_path}.tmp
 		fi
-		echo "`date \"+%Y-%m-%d %H:%M:%S\"` 【防火墙】已 iptables 拉黑 ${black_ips}" >> ${logfile}
+		# 只有实际变化时才输出日志
+		if $need_update; then
+			echo "`date \"+%Y-%m-%d %H:%M:%S\"` 【防火墙】已 iptables 拉黑 ${black_ips}" >> ${logfile}
+		fi
 	fi
 
 	# 记录当前 set 元素快照（供下次判定防火墙是否主动变化——到期移除 vs 用户删除）
