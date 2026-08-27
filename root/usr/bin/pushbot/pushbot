@@ -63,6 +63,12 @@ function read_config(){
 	for _w in $_wifi_sys; do
 		echo "$wlan_interface" | grep -q -w "$_w" || wlan_interface="${wlan_interface} ${_w}"
 	done
+	# 输出无线接口探测结果（与防火墙/流量源探测一致）
+	if [ ! -z "$wlan_interface" ]; then
+		echo "`date "+%Y-%m-%d %H:%M:%S"` 【检测到无线接口：${wlan_interface}】" >> ${logfile}
+	else
+		echo "`date "+%Y-%m-%d %H:%M:%S"` 【未检测到无线接口】" >> ${logfile}
+	fi
 	[ -z "$up_timeout" ] || [ "$up_timeout" -eq "0" ] && up_timeout="2"
 	[ -z "$down_timeout" ] || [ "$down_timeout" -eq "0" ] && down_timeout="20";down_timeout=`expr ${down_timeout} / 2 + 1`
 	[ -z "$timeout_retry_count" ] && timeout_retry_count="2";[ "$timeout_retry_count" -eq "0" ] && timeout_retry_count="1"

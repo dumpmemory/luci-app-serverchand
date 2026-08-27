@@ -368,7 +368,7 @@ return {
 		if (wc) {
 			/* 从缓存读取 */
 			let line = wc.read("line");
-			while (line != null) {
+			while (line) {
 				let n = replace(line, /\s+/, "");
 				if (length(n) > 0) push(wifi_ifs, n);
 				line = wc.read("line");
