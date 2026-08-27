@@ -1349,9 +1349,11 @@ function login_send(){
 	cat ${dir}login_monitor|grep -i "failed login"|grep -Eo "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}" >> ${dir}web_failed
 	cat ${dir}login_monitor|grep -i "Bad password attempt\|Login attempt for nonexistent user from"|grep -Eo "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}" >> ${dir}ssh_failed
 	echo "" > ${dir}login_monitor
-	# 只有拉黑功能启用时才执行黑名单同步
+	# 只有拉黑功能启用时才执行黑名单同步（检查是否有变化，避免重复执行）
 	if [ "$web_login_black" = "1" ]; then
-		add_ip_black
+		if need_blacklist_sync; then
+			add_ip_black
+		fi
 	fi
 	
 	local login_ip_list=`cat ${dir}web_login|awk '{print $2}'|grep -v "^$"|sort -u|head -n1`
@@ -1917,6 +1919,43 @@ function parse_timeout(){
 		*)   mult=1 ;;
 	esac
 	echo $((num * mult))
+}
+
+# 检查是否需要同步黑名单（文件/配置/内核是否有变化）
+function need_blacklist_sync(){
+	local bl_state="/usr/bin/pushbot/api/.ip_blacklist.state"
+	local prev_file="${bl_state}.prev"
+	local prev_onoff_file="${bl_state}.onoff"
+	local prev_timeout_file="${bl_state}.timeout"
+	local cur_onoff="${web_login_black:-0}"
+	local cur_timeout=$(parse_timeout "${ip_black_timeout:-0}")
+
+	# 检查 1：黑名单开关变化
+	local prev_onoff=""
+	[ -f "$prev_onoff_file" ] && prev_onoff=$(cat "$prev_onoff_file" 2>/dev/null)
+	[ "$prev_onoff" != "$cur_onoff" ] && return 0
+
+	# 检查 2：拉黑时长变化
+	local prev_timeout=""
+	[ -f "$prev_timeout_file" ] && prev_timeout=$(cat "$prev_timeout_file" 2>/dev/null)
+	[ "$prev_timeout" != "$cur_timeout" ] && return 0
+
+	# 检查 3：黑名单文件变化（用户手动增删）
+	if [ -f "$prev_file" ] && ! cmp -s "$prev_file" "${ip_blacklist_path}" 2>/dev/null; then
+		return 0
+	fi
+
+	# 检查 4：内核 set 缺失（fw4 重启/路由重启清空了 nft set）
+	if [ "$cur_onoff" = "1" ] && [ -s "${ip_blacklist_path}" ]; then
+		if command -v nft >/dev/null 2>&1; then
+			nft list set inet fw4 pushbot_blacklist >/dev/null 2>&1 || return 0
+			nft list set inet fw4 pushbot_blacklist6 >/dev/null 2>&1 || return 0
+			nft list chain inet fw4 input 2>/dev/null | grep -q "@pushbot_blacklist" || return 0
+		fi
+	fi
+
+	# 无变化
+	return 1
 }
 
 # 添加黑名单 — 支持 nftables / iptables 双模式

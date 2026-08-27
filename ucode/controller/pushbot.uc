@@ -590,9 +590,8 @@ return {
 		else if (en == "0" || en == 0 || en == false)
 			system("/etc/init.d/pushbot stop >/dev/null 2>&1 &");
 
-		/* 拉黑规则立即应用：保存后后台触发（新增/修改/清空黑名单、
-		   切换拉黑开关、改白名单/超时全部即时生效，不等 sleeptime 轮询） */
-		system("/usr/bin/pushbot/pushbot blacklist >/dev/null 2>&1 &");
+		/* pushbot blacklist 已移除：pushbot start 会重启主进程，
+		   初始化时统一执行 add_ip_black，避免重复同步和重复日志 */
 
 		http.write_json({ ok: true });
 	},
