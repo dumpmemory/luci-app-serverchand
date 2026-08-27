@@ -2429,12 +2429,16 @@ unset i
 
 # 启动参数
 if [ "$1" ] ;then
+	# blacklist 只需读取黑名单配置，不需要流量源探测
+	if [ "$1" = "blacklist" ]; then
+		get_config "pushbot_enable" "pushbot_whitelist" "pushbot_blacklist" "pushbot_interface" "MAC_online_list" "MAC_offline_list" "ip_white_list" "ip_black_timeout"
+		add_ip_black
+		exit
+	fi
 	[ $1 == "send" ] && send
 	[ $1 == "soc" ] && echo `soc_temp` > ${dir}soc_tmp
 	[ $1 == "client" ] && get_client
 	[ $1 == "test" ] && send test
-	# 立即应用/修改/清空拉黑规则（Web 保存后触发，不等 sleeptime 轮询）
-	[ $1 == "blacklist" ] && add_ip_black
 	exit
 fi
 
