@@ -57,17 +57,25 @@ function read_config(){
 	ipv6_urllist=`cat /usr/bin/pushbot/api/ipv6.list` 2>/dev/null
 	[ -z "$pushbot_ipv4" ] && pushbot_ipv4=0
 	[ -z "$pushbot_ipv6" ] && pushbot_ipv6=0
-	[ "$iw_version" ] && wlan_interface=`iw dev|grep Interface|awk '{print $2}'` >/dev/null 2>&1
-	# 补充检测：/sys/class/net/*/wireless 覆盖 MTK 闭源等 iw 无输出的平台
-	local _wifi_sys=$(ls /sys/class/net/*/wireless 2>/dev/null | sed 's|/sys/class/net/||;s|/wireless||;s/:$//')
-	for _w in $_wifi_sys; do
-		echo "$wlan_interface" | grep -q -w "$_w" || wlan_interface="${wlan_interface} ${_w}"
-	done
-	# 输出无线接口探测结果（与防火墙/流量源探测一致）
-	if [ ! -z "$wlan_interface" ]; then
-		echo "`date "+%Y-%m-%d %H:%M:%S"` 【检测到无线接口：${wlan_interface}】" >> ${logfile}
+	# 无线接口检测（缓存到 /tmp，与防火墙/流量源探测一致）
+	wlan_interface=""
+	if [ -f "${dir}wlan_interface" ]; then
+		# 读取缓存（启动后不再输出日志）
+		wlan_interface=$(cat ${dir}wlan_interface 2>/dev/null)
 	else
-		echo "`date "+%Y-%m-%d %H:%M:%S"` 【未检测到无线接口】" >> ${logfile}
+		# 缓存不存在，执行探测并输出日志
+		[ "$iw_version" ] && wlan_interface=`iw dev|grep Interface|awk '{print $2}'` >/dev/null 2>&1
+		# 补充检测：/sys/class/net/*/wireless 覆盖 MTK 闭源等 iw 无输出的平台
+		local _wifi_sys=$(ls /sys/class/net/*/wireless 2>/dev/null | sed 's|/sys/class/net/||;s|/wireless||;s/:$//')
+		for _w in $_wifi_sys; do
+			echo "$wlan_interface" | grep -q -w "$_w" || wlan_interface="${wlan_interface} ${_w}"
+		done
+		echo "$wlan_interface" > ${dir}wlan_interface
+		if [ ! -z "$wlan_interface" ]; then
+			echo "`date "+%Y-%m-%d %H:%M:%S"` 【检测到无线接口：${wlan_interface}】" >> ${logfile}
+		else
+			echo "`date "+%Y-%m-%d %H:%M:%S"` 【未检测到无线接口】" >> ${logfile}
+		fi
 	fi
 	[ -z "$up_timeout" ] || [ "$up_timeout" -eq "0" ] && up_timeout="2"
 	[ -z "$down_timeout" ] || [ "$down_timeout" -eq "0" ] && down_timeout="20";down_timeout=`expr ${down_timeout} / 2 + 1`
@@ -2561,6 +2569,22 @@ if [ "$1" ] ;then
 	if [ "$1" = "check_traffic" ]; then
 		rm -f ${dir}traffic_source
 		init_traffic_source
+		exit
+	fi
+	# 重检无线接口：清除缓存并重新探测
+	if [ "$1" = "check_wireless" ]; then
+		rm -f ${dir}wlan_interface
+		[ "$iw_version" ] && wlan_interface=`iw dev|grep Interface|awk '{print $2}'` >/dev/null 2>&1
+		local _wifi_sys=$(ls /sys/class/net/*/wireless 2>/dev/null | sed 's|/sys/class/net/||;s|/wireless||;s/:$//')
+		for _w in $_wifi_sys; do
+			echo "$wlan_interface" | grep -q -w "$_w" || wlan_interface="${wlan_interface} ${_w}"
+		done
+		echo "$wlan_interface" > ${dir}wlan_interface
+		if [ ! -z "$wlan_interface" ]; then
+			echo "`date "+%Y-%m-%d %H:%M:%S"` 【检测到无线接口：${wlan_interface}】" >> ${logfile}
+		else
+			echo "`date "+%Y-%m-%d %H:%M:%S"` 【未检测到无线接口】" >> ${logfile}
+		fi
 		exit
 	fi
 	[ $1 == "send" ] && send
