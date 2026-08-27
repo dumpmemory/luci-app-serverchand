@@ -254,6 +254,12 @@ return {
 		http.write_json({ ok: true });
 	},
 
+	act_check_wireless: function() {
+		system("/usr/bin/pushbot/pushbot check_wireless >/dev/null 2>&1");
+		http.prepare_content("application/json");
+		http.write_json({ ok: true });
+	},
+
 	act_get_config: function() {
 		let u = cursor();
 		let cfg = {};
@@ -331,15 +337,8 @@ return {
 			ip_black_list: "/usr/bin/pushbot/api/ip_blacklist"
 		};
 
-		/* 进入页面即对账一次黑名单：把内核 set 已到期移除的 IP 从文件清掉，
-		   并刷新 prev_set/prev_file 快照。用户在编辑界面看到的是"已同步"的文件，
-		   避免"残留 + 用户新增"并发导致新增被误清（乐观并发控制的前提是
-		   用户基于干净状态修改）。拉黑关闭时跳过（对账无意义且避免无谓 nft 操作）。
-		   后台(&)执行：避免与 pushbot 主进程竞争 nft 锁时阻塞 get_config，
-		   导致页面请求超时（只剩标题卡片）。 */
-		let bl_on = u.get("pushbot", "pushbot", "web_login_black");
-		if (bl_on == "1" || bl_on == 1 || bl_on == true)
-			system("/usr/bin/pushbot/pushbot blacklist >/dev/null 2>&1 &");
+		/* 黑名单对账由主进程定时同步（login_send + 主循环），页面加载时不触发
+		   （避免重复执行 add_ip_black，也避免与主进程竞争 nft 锁）。 */
 
 		for (let name, path in file_paths) {
 			try {
@@ -448,6 +447,15 @@ return {
 			arpf2.close();
 		}
 		sysinfo.mac_hints = mac_hints;
+
+		/* 防火墙模式（读缓存，由主进程 init_firewall_mode 探测） */
+		let fw_out = popen("cat /tmp/pushbot/firewall_mode 2>/dev/null", "r");
+		let fw_mode = "";
+		if (fw_out) {
+			fw_mode = replace(fw_out.read("line") ?? "", /\s+/, "");
+			fw_out.close();
+		}
+		sysinfo.firewall_mode = fw_mode || "unknown";
 
 		http.prepare_content("application/json");
 		http.write_json({ config: cfg, lists: lists, files: files, system: sysinfo });

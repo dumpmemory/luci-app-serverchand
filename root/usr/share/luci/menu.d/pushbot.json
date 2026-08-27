@@ -96,6 +96,13 @@
 			"function": "act_check_traffic"
 		}
 	},
+	"admin/services/pushbot/check_wireless": {
+		"action": {
+			"type": "function",
+			"module": "luci.controller.pushbot",
+			"function": "act_check_wireless"
+		}
+	},
 	"admin/services/pushbot/get_config": {
 		"action": {
 			"type": "function",

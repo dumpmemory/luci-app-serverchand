@@ -81,6 +81,7 @@ function PB_val(opt, def) { return (PB_CONFIG && PB_CONFIG.config && PB_CONFIG.c
 function PB_list(opt) { var v = PB_CONFIG && PB_CONFIG.lists && PB_CONFIG.lists[opt]; return Array.isArray(v) ? v : []; }
 function PB_file(name) { var v = PB_CONFIG && PB_CONFIG.files && PB_CONFIG.files[name]; return (v && typeof v === 'string') ? v : ''; }
 function PB_sys(name) { var v = PB_CONFIG && PB_CONFIG.system && PB_CONFIG.system[name]; return Array.isArray(v) ? v : []; }
+function PB_sysVal(name, def) { var v = PB_CONFIG && PB_CONFIG.system && PB_CONFIG.system[name]; return (v !== undefined && v !== null) ? v : (def !== undefined ? def : null); }
 function PB_bool(opt) { return PB_val(opt) === '1'; }
 
 XHR.get('{{ dispatcher.build_url('admin', 'services', 'pushbot', 'get_config') }}', null, function(x, data) {
@@ -2012,10 +2013,19 @@ cuSub.appendChild(mkBtn('{{ _('Traffic DND') }}',cdOn,function(on){updateFlagInp
 	
 	/* 重检防火墙按钮（仅在黑名单功能启用时显示） */
 	if (CT_AUTO_BAN) {
+		var fwRow = document.createElement('div'); fwRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:4px';
+		/* 防火墙版本标签 */
+		var CT_FW_MODE = PB_sysVal('firewall_mode', 'unknown');
+		var fwPill = document.createElement('span');
+		var fwColor = (CT_FW_MODE === 'nft') ? 'background:rgba(34,197,94,0.15);color:#16a34a;border:1px solid rgba(34,197,94,0.3)' : (CT_FW_MODE === 'iptables') ? 'background:rgba(249,115,22,0.15);color:#ea580c;border:1px solid rgba(249,115,22,0.3)' : 'background:rgba(148,163,184,0.15);color:#64748b;border:1px solid rgba(148,163,184,0.3)';
+		fwPill.style.cssText = 'display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;vertical-align:middle;' + fwColor;
+		fwPill.textContent = CT_FW_MODE === 'nft' ? 'nftables' : CT_FW_MODE === 'iptables' ? 'iptables' : CT_FW_MODE;
+		fwRow.appendChild(fwPill);
+		/* 重检按钮 */
 		var fwBtn = document.createElement('button');
 		fwBtn.type = 'button';
 		fwBtn.className = 'pushbot-choice-button is-on';
-		fwBtn.style.cssText = 'font-size:11px;padding:3px 8px;margin-top:4px';
+		fwBtn.style.cssText = 'font-size:11px;padding:3px 8px';
 		fwBtn.textContent = '{{ _('Refresh firewall check') }}';
 		fwBtn.addEventListener('click', function() {
 			fwBtn.disabled = true;
@@ -2027,9 +2037,18 @@ cuSub.appendChild(mkBtn('{{ _('Traffic DND') }}',cdOn,function(on){updateFlagInp
 					fwBtn.style.background = 'rgba(34,197,94,0.2)';
 					setTimeout(function(){ fwBtn.style.background = ''; }, 2000);
 				}
+				/* 更新标签显示 */
+				XHR.get('{{ dispatcher.build_url("admin", "services", "pushbot", "get_config") }}', null, function(x2, data) {
+					if (data && data.system && data.system.firewall_mode) {
+						var mode = data.system.firewall_mode;
+						fwPill.textContent = mode === 'nft' ? 'nftables' : mode === 'iptables' ? 'iptables' : mode;
+						fwPill.style.cssText = 'display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;vertical-align:middle;' + (mode === 'nft' ? 'background:rgba(34,197,94,0.15);color:#16a34a;border:1px solid rgba(34,197,94,0.3)' : mode === 'iptables' ? 'background:rgba(249,115,22,0.15);color:#ea580c;border:1px solid rgba(249,115,22,0.3)' : 'background:rgba(148,163,184,0.15);color:#64748b;border:1px solid rgba(148,163,184,0.3)');
+					}
+				});
 			});
 		});
-		banSub.appendChild(fwBtn);
+		fwRow.appendChild(fwBtn);
+		banSub.appendChild(fwRow);
 	}
 
 	c3.appendChild(b3); container.appendChild(c3);

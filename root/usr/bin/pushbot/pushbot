@@ -33,6 +33,8 @@ function read_config(){
 	# 永久拉黑（ip_black_timeout=0）且持久化开启：使用持久目录
 	# 非永久拉黑 或 持久化关闭：使用 /tmp（OpenWrt 重启后清空）
 	local ip_black_persist="${ip_black_persist:-1}"
+	[ "$ip_black_persist" = "undefined" ] && ip_black_persist="1"
+	[ "$ip_black_persist" = "null" ] && ip_black_persist="1"
 	if [ "$ip_black_timeout" = "0" ] && [ "$ip_black_persist" = "1" ]; then
 		ip_blacklist_path="/usr/bin/pushbot/api/ip_blacklist"
 	else
@@ -135,10 +137,13 @@ function pushbot_init(){
 	down_oui &
 	deltemp
 	get_syslog
-	# 只有拉黑功能启用时才执行黑名单初始化
+	# 只有拉黑功能启用时才执行黑名单初始化（含防火墙模式探测）
 	if [ "$web_login_black" = "1" ]; then
 		init_firewall_mode
-		add_ip_black
+		# 检查是否有变化需要同步（避免每次启动都重复执行）
+		if need_blacklist_sync; then
+			add_ip_black
+		fi
 	fi
 	
 	rm -f ${dir}fd1 ${dir}sheep_usage ${dir}old_sheep_usage ${dir}client_usage_aliases ${dir}old_client_usage_aliases /usr/bin/pushbot/errlog >/dev/null 2>&1
@@ -1968,8 +1973,14 @@ function need_blacklist_sync(){
 	[ "$prev_timeout" != "$cur_timeout" ] && return 0
 
 	# 检查 3：黑名单文件变化（用户手动增删）
-	if ! cmp -s "$prev_file" "${ip_blacklist_path}" 2>/dev/null; then
-		return 0
+	# 仅当文件存在时比较（不存在说明首次或路径变更，需同步）
+	if [ -f "${ip_blacklist_path}" ] && [ -f "$prev_file" ]; then
+		if ! cmp -s "$prev_file" "${ip_blacklist_path}" 2>/dev/null; then
+			return 0
+		fi
+	else
+		# 文件缺失：需同步（首次或 UCI 路径变更）
+		[ ! -f "${ip_blacklist_path}" ] && return 0
 	fi
 
 	# 检查 4：内核 set 缺失（fw4 重启/路由重启清空了 nft set）
@@ -2166,6 +2177,12 @@ function add_ip_black(){
 	
 	if $use_nft; then
 		if [ $ip_count -le "0" ]; then
+			# 如果没有变化且 set 不存在，跳过清空（避免重复执行）
+			if ! $need_update && ! nft list set inet fw4 pushbot_blacklist >/dev/null 2>&1 && ! nft list set inet fw4 pushbot_blacklist6 >/dev/null 2>&1; then
+				# 检查规则是否残留
+				local rule_exists=$(nft list chain inet fw4 input 2>/dev/null | grep -c "@pushbot_blacklist" || echo "0")
+				[ "$rule_exists" -eq "0" ] && return
+			fi
 			# 删除所有引用黑名单 set 的规则（v4/v6 各一条，必须全部删除，
 			# 否则残留规则引用 set → nft delete set 报 in-use 失败 → 拉黑不解除）
 			local del_rule_handles=$(nft -a list chain inet fw4 input 2>/dev/null | grep "@pushbot_blacklist" | grep -o "handle [0-9]*" | cut -d' ' -f2)
@@ -2174,8 +2191,11 @@ function add_ip_black(){
 			done
 			nft delete set inet fw4 pushbot_blacklist 2>/dev/null || true
 			nft delete set inet fw4 pushbot_blacklist6 2>/dev/null || true
-			echo "`date \"+%Y-%m-%d %H:%M:%S\"` 【防火墙】黑名单列表为空，清空 nftables 防火墙拉黑策略" >> ${logfile}
+			if $need_update; then
+				echo "`date \"+%Y-%m-%d %H:%M:%S\"` 【防火墙】黑名单列表为空，清空 nftables 防火墙拉黑策略" >> ${logfile}
+			fi
 			> ${ip_blacklist_path}
+			cp "${ip_blacklist_path}" "$prev_file" 2>/dev/null
 			rm -f "${bl_state}.prevset"
 			return
 		fi
@@ -2270,8 +2290,11 @@ function add_ip_black(){
 		if [ $ip_count -le "0" ]; then
 			iptables -D INPUT -m set --match-set ip_blacklist src -j DROP >/dev/null 2>&1
 			ipset destroy ip_blacklist >/dev/null 2>&1
-			echo "`date \"+%Y-%m-%d %H:%M:%S\"` 【防火墙】黑名单列表为空，清空 iptables 防火墙拉黑策略" >> ${logfile}
+			if $need_update; then
+				echo "`date \"+%Y-%m-%d %H:%M:%S\"` 【防火墙】黑名单列表为空，清空 iptables 防火墙拉黑策略" >> ${logfile}
+			fi
 			> ${ip_blacklist_path}
+			cp "${ip_blacklist_path}" "$prev_file" 2>/dev/null
 			rm -f "${bl_state}.prevset"
 			return
 		fi
