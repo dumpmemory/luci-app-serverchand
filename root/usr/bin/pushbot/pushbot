@@ -113,7 +113,11 @@ function pushbot_init(){
 	down_oui &
 	deltemp
 	get_syslog
-	add_ip_black
+	# 只有拉黑功能启用时才执行黑名单初始化
+	if [ "$web_login_black" = "1" ]; then
+		init_firewall_mode
+		add_ip_black
+	fi
 	
 	rm -f ${dir}fd1 ${dir}sheep_usage ${dir}old_sheep_usage ${dir}client_usage_aliases ${dir}old_client_usage_aliases /usr/bin/pushbot/errlog >/dev/null 2>&1
 	[ -f "/usr/sbin/wrtbwmon" ] || command -v nlbw >/dev/null 2>&1 || echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】未安装 wrtbwmon 且 nlbwmon 不可用，流量统计不可用" >> ${logfile}
@@ -1345,7 +1349,10 @@ function login_send(){
 	cat ${dir}login_monitor|grep -i "failed login"|grep -Eo "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}" >> ${dir}web_failed
 	cat ${dir}login_monitor|grep -i "Bad password attempt\|Login attempt for nonexistent user from"|grep -Eo "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}" >> ${dir}ssh_failed
 	echo "" > ${dir}login_monitor
-	add_ip_black
+	# 只有拉黑功能启用时才执行黑名单同步
+	if [ "$web_login_black" = "1" ]; then
+		add_ip_black
+	fi
 	
 	local login_ip_list=`cat ${dir}web_login|awk '{print $2}'|grep -v "^$"|sort -u|head -n1`
 	for login_ip in $login_ip_list; do
@@ -1462,13 +1469,16 @@ function login_send(){
 					fi
 				fi
 			fi
-			# 先尝试拉黑（add_ip_black 内部会做本机/白名单保护），
-			# 成功(未被拦截)才清除失败记录；被拦截则保留记录供后续重试。
-			if add_ip_black $login_ip; then
-				sed -i "/^${login_ip}$/d" ${dir}web_failed
-				echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】设备 ${login_ip} 通过 Web 频繁尝试登录" >> ${logfile}
-			else
-				echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】设备 ${login_ip} 触发拉黑但被本机/白名单保护拦截，保留记录待后续确认" >> ${logfile}
+			# 只有拉黑功能启用时才执行拉黑操作
+			if [ "$web_login_black" = "1" ]; then
+				# 先尝试拉黑（add_ip_black 内部会做本机/白名单保护），
+				# 成功(未被拦截)才清除失败记录；被拦截则保留记录供后续重试。
+				if add_ip_black $login_ip; then
+					sed -i "/^${login_ip}$/d" ${dir}web_failed
+					echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】设备 ${login_ip} 通过 Web 频繁尝试登录" >> ${logfile}
+				else
+					echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】设备 ${login_ip} 触发拉黑但被本机/白名单保护拦截，保留记录待后续确认" >> ${logfile}
+				fi
 			fi
 		fi
 	done
@@ -1512,12 +1522,15 @@ function login_send(){
 					fi
 				fi
 			fi
-			# 先尝试拉黑，成功(未被保护拦截)才清除失败记录
-			if add_ip_black $login_ip; then
-				sed -i "/^${login_ip}$/d" ${dir}ssh_failed
-				echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】设备 ${login_ip} 通过 SSH 频繁尝试登录" >> ${logfile}
-			else
-				echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】设备 ${login_ip} 触发拉黑但被本机/白名单保护拦截，保留记录待后续确认" >> ${logfile}
+			# 只有拉黑功能启用时才执行拉黑操作
+			if [ "$web_login_black" = "1" ]; then
+				# 先尝试拉黑，成功(未被保护拦截)才清除失败记录
+				if add_ip_black $login_ip; then
+					sed -i "/^${login_ip}$/d" ${dir}ssh_failed
+					echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】设备 ${login_ip} 通过 SSH 频繁尝试登录" >> ${logfile}
+				else
+					echo "`date "+%Y-%m-%d %H:%M:%S"` 【！！！】设备 ${login_ip} 触发拉黑但被本机/白名单保护拦截，保留记录待后续确认" >> ${logfile}
+				fi
 			fi
 		fi
 	done
@@ -2389,12 +2402,10 @@ function init_traffic_source() {
 	traffic_source="none"
 	if [ -f "${dir}traffic_source" ]; then
 		traffic_source=$(cat ${dir}traffic_source 2>/dev/null)
-		echo "`date "+%Y-%m-%d %H:%M:%S"` 【读取到已检流量源：${traffic_source}】" >> ${logfile}
 		return
 	fi
 
 	# 缓存为空，重新探测
-	echo "`date "+%Y-%m-%d %H:%M:%S"` 【检测流量工具中...】" >> ${logfile}
 	if command -v nlbw >/dev/null 2>&1 && [ -S /var/run/nlbwmon.sock ]; then
 		_nlbw_rows=$(nlbw -c csv -s, -q -n -g mac 2>/dev/null | awk -F',' 'NR>1 && $1!="mac" {n++} END{print n+0}')
 		[ "${_nlbw_rows:-0}" -gt "0" ] && traffic_source="nlbw"
@@ -2412,12 +2423,10 @@ function init_firewall_mode() {
 	firewall_mode=""
 	if [ -f "${dir}firewall_mode" ]; then
 		firewall_mode=$(cat ${dir}firewall_mode 2>/dev/null)
-		echo "`date "+%Y-%m-%d %H:%M:%S"` 【读取到已检防火墙：${firewall_mode}】" >> ${logfile}
 		return
 	fi
 
 	# 缓存为空，重新探测
-	echo "`date "+%Y-%m-%d %H:%M:%S"` 【检测防火墙中...】" >> ${logfile}
 	if command -v nft >/dev/null 2>&1; then
 		firewall_mode="nft"
 	else
@@ -2465,15 +2474,21 @@ unset i
 if [ "$1" ] ;then
 	# blacklist 只需读取黑名单配置，不需要流量源探测
 	if [ "$1" = "blacklist" ]; then
-		get_config "pushbot_enable" "pushbot_whitelist" "pushbot_blacklist" "pushbot_interface" "MAC_online_list" "MAC_offline_list" "ip_white_list" "ip_black_timeout"
-		init_firewall_mode
-		add_ip_black
+		get_config "pushbot_enable" "web_login_black" "pushbot_whitelist" "pushbot_blacklist" "pushbot_interface" "MAC_online_list" "MAC_offline_list" "ip_white_list" "ip_black_timeout"
+		# 只有拉黑功能启用时才执行
+		if [ "$web_login_black" = "1" ]; then
+			init_firewall_mode
+			add_ip_black
+		fi
 		exit
 	fi
 	# 重检防火墙：清除缓存并重新探测
 	if [ "$1" = "check_firewall" ]; then
-		rm -f ${dir}firewall_mode
-		init_firewall_mode
+		get_config "web_login_black"
+		if [ "$web_login_black" = "1" ]; then
+			rm -f ${dir}firewall_mode
+			init_firewall_mode
+		fi
 		exit
 	fi
 	# 重检流量源：清除缓存并重新探测
