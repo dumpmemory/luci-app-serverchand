@@ -2077,13 +2077,10 @@ function add_ip_black(){
 		done
 	fi
 	
-	# 判断防火墙工具
+	# 使用缓存的防火墙模式（init_firewall_mode 已探测）
 	local use_nft=false
-	if command -v nft >/dev/null 2>&1; then
+	if [ "$firewall_mode" = "nft" ]; then
 		use_nft=true
-		echo "`date \"+%Y-%m-%d %H:%M:%S\"` 【防火墙】检测到 nftables，将采用 nftables 防火墙策略" >> ${logfile}
-	else
-		echo "`date \"+%Y-%m-%d %H:%M:%S\"` 【防火墙】检测到只有 iptables，将采用 iptables 防火墙策略" >> ${logfile}
 	fi
 	
 	if $use_nft; then
@@ -2386,15 +2383,18 @@ SCRIPT_ARG="$1"
 # 初始化
 read_config
 
-# ── 流量数据源探测（主进程每次启动重新探测，外部调用读缓存） ──
-traffic_source="none"
-if [ "$1" = "usage" ]; then
-	# 外部调用：读缓存文件，不重新探测（避免启动延迟）
+# ── 流量数据源探测（缓存到 /tmp，OpenWrt 重启后重新探测） ──
+function init_traffic_source() {
+	# 读取缓存
+	traffic_source="none"
 	if [ -f "${dir}traffic_source" ]; then
 		traffic_source=$(cat ${dir}traffic_source 2>/dev/null)
+		echo "`date "+%Y-%m-%d %H:%M:%S"` 【读取到已检流量源：${traffic_source}】" >> ${logfile}
+		return
 	fi
-else
-	# 主进程：重新探测（不 sleep，nlbw 立刻能返回数据就是 nlbw）
+
+	# 缓存为空，重新探测
+	echo "`date "+%Y-%m-%d %H:%M:%S"` 【检测流量工具中...】" >> ${logfile}
 	if command -v nlbw >/dev/null 2>&1 && [ -S /var/run/nlbwmon.sock ]; then
 		_nlbw_rows=$(nlbw -c csv -s, -q -n -g mac 2>/dev/null | awk -F',' 'NR>1 && $1!="mac" {n++} END{print n+0}')
 		[ "${_nlbw_rows:-0}" -gt "0" ] && traffic_source="nlbw"
@@ -2403,9 +2403,43 @@ else
 		traffic_source="wrtbw"
 	fi
 	echo "$traffic_source" > ${dir}traffic_source
+	echo "`date "+%Y-%m-%d %H:%M:%S"` 【检测到流量工具：${traffic_source}】" >> ${logfile}
+}
+
+# ── 防火墙模式探测（缓存到 /tmp，OpenWrt 重启后重新探测） ──
+function init_firewall_mode() {
+	# 读取缓存
+	firewall_mode=""
+	if [ -f "${dir}firewall_mode" ]; then
+		firewall_mode=$(cat ${dir}firewall_mode 2>/dev/null)
+		echo "`date "+%Y-%m-%d %H:%M:%S"` 【读取到已检防火墙：${firewall_mode}】" >> ${logfile}
+		return
+	fi
+
+	# 缓存为空，重新探测
+	echo "`date "+%Y-%m-%d %H:%M:%S"` 【检测防火墙中...】" >> ${logfile}
+	if command -v nft >/dev/null 2>&1; then
+		firewall_mode="nft"
+	else
+		firewall_mode="iptables"
+	fi
+	echo "$firewall_mode" > ${dir}firewall_mode
+	echo "`date "+%Y-%m-%d %H:%M:%S"` 【检测到防火墙：${firewall_mode}】" >> ${logfile}
+}
+
+# 主进程启动或 blacklist 命令时探测
+if [ "$1" != "usage" ] && [ "$1" != "soc" ] && [ "$1" != "client" ] && [ "$1" != "test" ]; then
+	init_traffic_source
+	init_firewall_mode
 fi
-# 仅主进程输出日志（外部调用 usage list/get 不输出，避免频繁刷屏）
-[ "$1" != "usage" ] && echo "`date "+%Y-%m-%d %H:%M:%S"` 【初始化】流量数据源: ${traffic_source}" >> ${logfile}
+
+# usage 命令：只读取流量源缓存（不探测）
+if [ "$1" = "usage" ]; then
+	traffic_source="none"
+	if [ -f "${dir}traffic_source" ]; then
+		traffic_source=$(cat ${dir}traffic_source 2>/dev/null)
+	fi
+fi
 
 # 供外部查询流量(LuCI 在线设备表格):pushbot usage list / pushbot usage get <mac> [bytes]
 # 注意:必须放在 deltemp 之前,避免查询时误删主循环的 pushbot.lock
@@ -2432,7 +2466,20 @@ if [ "$1" ] ;then
 	# blacklist 只需读取黑名单配置，不需要流量源探测
 	if [ "$1" = "blacklist" ]; then
 		get_config "pushbot_enable" "pushbot_whitelist" "pushbot_blacklist" "pushbot_interface" "MAC_online_list" "MAC_offline_list" "ip_white_list" "ip_black_timeout"
+		init_firewall_mode
 		add_ip_black
+		exit
+	fi
+	# 重检防火墙：清除缓存并重新探测
+	if [ "$1" = "check_firewall" ]; then
+		rm -f ${dir}firewall_mode
+		init_firewall_mode
+		exit
+	fi
+	# 重检流量源：清除缓存并重新探测
+	if [ "$1" = "check_traffic" ]; then
+		rm -f ${dir}traffic_source
+		init_traffic_source
 		exit
 	fi
 	[ $1 == "send" ] && send

@@ -242,6 +242,18 @@ return {
 		http.write_json({ ok: true });
 	},
 
+	act_check_firewall: function() {
+		system("/usr/bin/pushbot/pushbot check_firewall >/dev/null 2>&1");
+		http.prepare_content("application/json");
+		http.write_json({ ok: true });
+	},
+
+	act_check_traffic: function() {
+		system("/usr/bin/pushbot/pushbot check_traffic >/dev/null 2>&1");
+		http.prepare_content("application/json");
+		http.write_json({ ok: true });
+	},
+
 	act_get_config: function() {
 		let u = cursor();
 		let cfg = {};
