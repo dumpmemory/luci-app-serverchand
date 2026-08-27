@@ -1357,7 +1357,12 @@ function login_send(){
 	cat ${dir}login_monitor|grep -i "failed login"|grep -Eo "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}" >> ${dir}web_failed
 	cat ${dir}login_monitor|grep -i "Bad password attempt\|Login attempt for nonexistent user from"|grep -Eo "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}" >> ${dir}ssh_failed
 	echo "" > ${dir}login_monitor
-	# 黑名单同步已移至主循环末尾统一执行，避免重复
+	# 黑名单同步（检测变化，避免重复执行）
+	if [ "$web_login_black" = "1" ]; then
+		if need_blacklist_sync; then
+			add_ip_black
+		fi
+	fi
 	
 	local login_ip_list=`cat ${dir}web_login|awk '{print $2}'|grep -v "^$"|sort -u|head -n1`
 	for login_ip in $login_ip_list; do
@@ -1954,11 +1959,13 @@ function need_blacklist_sync(){
 	fi
 
 	# 检查 4：内核 set 缺失（fw4 重启/路由重启清空了 nft set）
+	# 只在 set 为空时才需要同步（set 非空说明规则已生效，不需要重复执行）
 	if [ "$cur_onoff" = "1" ] && [ -s "${ip_blacklist_path}" ]; then
 		if command -v nft >/dev/null 2>&1; then
-			nft list set inet fw4 pushbot_blacklist >/dev/null 2>&1 || return 0
-			nft list set inet fw4 pushbot_blacklist6 >/dev/null 2>&1 || return 0
-			nft list chain inet fw4 input 2>/dev/null | grep -q "@pushbot_blacklist" || return 0
+			local set_count=$(nft list set inet fw4 pushbot_blacklist 2>/dev/null | grep -c "elements = {" || echo "0")
+			if [ "$set_count" -eq "0" ]; then
+				return 0
+			fi
 		fi
 	fi
 
