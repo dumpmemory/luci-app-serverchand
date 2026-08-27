@@ -279,7 +279,7 @@ return {
 			"client_usage","client_usage_max","client_usage_disturb",
 			"pushbot_ipv4","ipv4_interface","pushbot_ipv6","ipv6_interface",
 			"web_logged","ssh_logged","web_login_failed","ssh_login_failed","wifi_connected","wifi_auth_failed",
-			"login_max_num","web_login_black","ip_black_timeout",
+			"login_max_num","web_login_black","ip_black_timeout","ip_black_persist",
 			"up_timeout","down_timeout","timeout_retry_count","thread_num",
 			"soc_code","pve_host","pve_port","err_enable","err_sheep_enable",
 			"network_err_event","system_time_event","autoreboot_time",

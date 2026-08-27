@@ -1910,6 +1910,37 @@ cuSub.appendChild(mkBtn('{{ _('Traffic DND') }}',cdOn,function(on){updateFlagInp
 	failSub.appendChild(mkBtn('{{ _('Auto blacklist') }}',banOn,function(on){updateFlagInput('web_login_black',on);toggleBan(on);}));
 	var banSub=document.createElement('div');banSub.id='ct_ban_sub';banSub.style.cssText='margin-top:4px;display:'+(CT_AUTO_BAN?'block':'none');
 	banSub.appendChild(mkTimeoutSel('ip_black_timeout','{{ _('Blacklist duration') }}',CT_BAN_TIMEOUT,''));
+	
+	/* 黑名单持久化按钮（仅在拉黑时间=永久时显示） */
+	var banPersistDiv = document.createElement('div'); banPersistDiv.style.cssText = 'margin:4px 0';
+	var banPersistHi = mkH('ip_black_persist', CT_BAN_PERSIST);
+	var CT_BAN_PERSIST = PB_val('ip_black_persist', '1') !== '0';
+	var banPersistBtn = mkBtn('{{ _('Blacklist persist') }}', CT_BAN_PERSIST, function(on) {
+		banPersistHi.value = on ? '1' : '0';
+	});
+	banPersistDiv.appendChild(banPersistBtn);
+	banSub.appendChild(banPersistDiv);
+	
+	/* 监听拉黑时长变化，控制持久化按钮显示（仅永久时显示） */
+	function toggleBanPersist() {
+		var raw = document.querySelector('[name="cbid.pushbot.pushbot.ip_black_timeout"]');
+		if (!raw) return;
+		var v = raw.value || '1D';
+		/* 0 或空 = 永久 */
+		var isPermanent = (v === '0' || v === '');
+		banPersistDiv.style.display = isPermanent ? 'block' : 'none';
+	}
+	/* 初始显示状态 */
+	toggleBanPersist();
+	/* 监听所有可能的值变化（轮询检查） */
+	var lastTimeoutVal = document.querySelector('[name="cbid.pushbot.pushbot.ip_black_timeout"]')?.value;
+	setInterval(function() {
+		var cur = document.querySelector('[name="cbid.pushbot.pushbot.ip_black_timeout"]')?.value;
+		if (cur !== lastTimeoutVal) {
+			lastTimeoutVal = cur;
+			toggleBanPersist();
+		}
+	}, 500);
 	/* IP white list */
 	var ipCtr=document.createElement('div');ipCtr.style.cssText='margin:4px 0';
 	var ipLbl=document.createElement('div');ipLbl.className='pushbot-inline-title';
