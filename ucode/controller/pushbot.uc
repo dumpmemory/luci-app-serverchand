@@ -261,6 +261,9 @@ return {
 		let files = {};
 		let sysinfo = {};
 
+		/* 确保缓存目录存在 */
+		system("mkdir -p /tmp/pushbot");
+
 		/* scalar options */
 		let scalar_opts = [
 			"pushbot_enable","lite_enable","jsonpath","dd_webhook","we_webhook",
@@ -358,26 +361,48 @@ return {
 		}
 		sysinfo.ifaces = ifaces;
 
-		/* wireless interfaces detection */
+		/* wireless interfaces detection - 缓存到 /tmp，避免重复探测 */
 		let wifi_ifs = [];
-		let wifi_seen = {};
-		/* 方式1: iw dev（开源驱动 mac80211） */
-		let wf = popen("iw dev 2>/dev/null | grep Interface | awk '{print $2}'", "r");
-		if (wf) {
-			for (let line = wf.read("line"); line; line = wf.read("line")) {
+		let wifi_cache_file = "/tmp/pushbot/wireless_ifs";
+		let wc = open(wifi_cache_file, "r");
+		if (wc) {
+			/* 从缓存读取 */
+			let line = wc.read("line");
+			while (line != null) {
 				let n = replace(line, /\s+/, "");
-				if (length(n) > 0 && !wifi_seen[n]) { wifi_seen[n] = true; push(wifi_ifs, n); }
+				if (length(n) > 0) push(wifi_ifs, n);
+				line = wc.read("line");
 			}
-			wf.close();
-		}
-		/* 方式2: 遍历 /sys/class/net 下带 wireless 的接口（MTK 闭源等 iw 无输出的平台） */
-		let wf2 = popen("ls /sys/class/net/*/wireless 2>/dev/null | sed 's|/sys/class/net/||;s|/wireless||;s/:$//'", "r");
-		if (wf2) {
-			for (let line = wf2.read("line"); line; line = wf2.read("line")) {
-				let n = replace(line, /\s+/, "");
-				if (length(n) > 0 && !wifi_seen[n]) { wifi_seen[n] = true; push(wifi_ifs, n); }
+			wc.close();
+		} else {
+			/* 缓存不存在，执行探测 */
+			let wifi_seen = {};
+			/* 方式1: iw dev（开源驱动 mac80211） */
+			let wf = popen("iw dev 2>/dev/null | grep Interface | awk '{print $2}'", "r");
+			if (wf) {
+				for (let line = wf.read("line"); line; line = wf.read("line")) {
+					let n = replace(line, /\s+/, "");
+					if (length(n) > 0 && !wifi_seen[n]) { wifi_seen[n] = true; push(wifi_ifs, n); }
+				}
+				wf.close();
 			}
-			wf2.close();
+			/* 方式2: 遍历 /sys/class/net 下带 wireless 的接口（MTK 闭源等 iw 无输出的平台） */
+			let wf2 = popen("ls /sys/class/net/*/wireless 2>/dev/null | sed 's|/sys/class/net/||;s|/wireless||;s/:$//'", "r");
+			if (wf2) {
+				for (let line = wf2.read("line"); line; line = wf2.read("line")) {
+					let n = replace(line, /\s+/, "");
+					if (length(n) > 0 && !wifi_seen[n]) { wifi_seen[n] = true; push(wifi_ifs, n); }
+				}
+				wf2.close();
+			}
+			/* 写入缓存 */
+			let wf = open(wifi_cache_file, "w");
+			if (wf) {
+				for (let iface in wifi_ifs) {
+					wf.write(iface + "\n");
+				}
+				wf.close();
+			}
 		}
 		sysinfo.wifi_ifs = wifi_ifs;
 
