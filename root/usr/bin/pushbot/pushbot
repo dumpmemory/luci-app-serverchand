@@ -1821,7 +1821,9 @@ function login_send(){
 				# 更新状态文件为最新事件时间（避免下次重复报告本批事件）
 				local _max_time=$(echo "$_fail_events" | awk '{print $1}' | sort -n | tail -1)
 				[ ! -z "$_max_time" ] && echo "$_max_time" > ${dir}wifi_fail_last_time
-				echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}WiFi 认证失败 ${_new_count} 次" >> ${logfile}
+				# 日志中补充 MAC 分组信息
+				local _mac_summary=$(echo "$_mac_stats" | awk '{printf "%s: %d次, ", $1, $2}' | sed 's/, $//')
+				echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}WiFi 认证失败 ${_new_count} 次（${_mac_summary}）" >> ${logfile}
 				if [ "$table_enable" = "1" ]; then
 					local LF='\n'
 					local _mac_rows=$(echo "$_mac_stats" | awk '{printf "\\n| %s | %s 次 |", $1, $2}')
