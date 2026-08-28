@@ -18,6 +18,7 @@ function read_config(){
 	"client_usage" "client_usage_max" "client_usage_disturb" "client_usage_whitelist" \
 	"web_logged" "ssh_logged" "web_login_failed" "ssh_login_failed" "wifi_connected" "wifi_auth_failed" "login_max_num" "web_login_black" "ip_white_list" "ip_black_timeout" \
 	"pushbot_sheep" "starttime" "endtime" "pushbot_whitelist" "pushbot_blacklist" "pushbot_interface" "MAC_online_list" "MAC_offline_list" \
+	"dnd_low_range" \
 	"up_timeout" "down_timeout" "timeout_retry_count" "thread_num" "soc_code" "pve_host" "pve_port"\
 	"err_enable" "err_sheep_enable" "err_device_aliases" "network_err_event" "system_time_event" "autoreboot_time" "network_restart_time" "public_ip_event" "public_ip_retry_count" \
 	"jsonpath" "dd_webhook" "we_webhook" "pp_token" "pp_channel" "pp_webhook" "pp_topic_enable" "pp_topic" "fs_webhook" "pushdeer_key" "pushdeer_srv_enable" "pushdeer_srv" "bark_srv_enable" "bark_srv" "bark_token" "bark_sound" "bark_icon" "bark_icon_enable" "bark_level" "ntfy_srv_enable" "ntfy_server" "ntfy_topic" "ntfy_token_enable" "ntfy_token" "ntfy_priority" "gotify_server" "gotify_token" "gotify_priority" \
@@ -769,6 +770,8 @@ function pushbot_cron(){
 
 # 免打扰检测
 function pushbot_disturb(){
+	# 模式3：低频通知，全天候生效，由 check_dnd_limit 控制去重，不受时间段限制
+	[ "$pushbot_sheep" = "3" ] && return 0
 	[ -z "$pushbot_sheep" ] || [ -z "$starttime" ] || [ -z "$endtime" ] && return 0
 	if [ `date +%H` -ge $endtime -a $starttime -lt $endtime ] || [ `date +%H` -lt $starttime -a $starttime -lt $endtime ] || [ `date +%H` -lt $starttime -a `date +%H` -ge $endtime -a $starttime -gt $endtime ]; then
 		unset sheep_starttime
@@ -787,6 +790,36 @@ function pushbot_disturb(){
 			return 1
 		fi
 	fi
+}
+
+# 低频通知去重（仅模式3启用时生效）
+# category: 类别（如 device, wifi_conn, wifi_disc, web_login, ssh_login）
+# value: 标识值（MAC 或 IP）
+# window: 时间窗口（支持秒/分/时/天，如 "1800" "30m" "1h" "8h" "1d"）
+# 返回：0=可以发送，1=跳过（已在低频窗口内发送过）
+function check_dnd_limit(){
+	local category="$1"
+	local value="$2"
+	local window_raw="${3:-1800}"
+	
+	# 模式3才启用低频检查
+	[ "$pushbot_sheep" != "3" ] && return 0
+	
+	local window_sec=$(parse_timeout "$window_raw")
+	[ "$window_sec" -le 0 ] && window_sec=1800  # 默认30分钟
+	
+	local now=$(date +%s)
+	local state_file="${dir}dnd_${category}_${value}"
+	
+	# 检查状态文件
+	if [ -f "$state_file" ]; then
+		local last=$(cat "$state_file" 2>/dev/null)
+		[ $((now - last)) -lt "$window_sec" ] && return 1  # 在窗口内，跳过
+	fi
+	
+	# 记录本次时间戳
+	echo "$now" > "$state_file"
+	return 0  # 可以发送
 }
 
 # 文件锁
@@ -1128,6 +1161,11 @@ function up(){
 			[ -f "${dir}send_enable.lock" ] || [ -z "$pushbot_up" ] || [ -z "$ip_blackwhite" ] && LockFile unlock && return
 			[ ! -z "$pushbot_up" ] && [ "$pushbot_up" -ne "1" ] && LockFile unlock && return
 			[ -z "$ip_blackwhite" ] || [ "$ip_blackwhite" -ne "0" ] && LockFile unlock && return
+			# 低频通知检查（模式3）：同一设备上线通知，在时间窗口内只通知一次
+			if ! check_dnd_limit "device" "$ip_mac" "$dnd_low_range"; then
+				echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}${ip_name} ${1} 上线（低频跳过）" >> ${logfile}
+				LockFile unlock && return
+			fi
 			[ -f "${dir}title" ] && local title=`cat ${dir}title`
 			[ -f "${dir}content" ] && local content=`cat ${dir}content`
 			if [ "$table_enable" = "1" ]; then
@@ -1197,6 +1235,11 @@ function down_send(){
 		[ -z "$pushbot_down" ] || [ -z "$ip_blackwhite" ] && continue
 		[ ! -z "$pushbot_down" ] && [ "$pushbot_down" -ne "1" ] && continue
 		[ -z "$ip_blackwhite" ] || [ "$ip_blackwhite" -ne "0" ] && continue
+		# 低频通知检查（模式3）：同一设备离线通知，在时间窗口内只通知一次
+		if ! check_dnd_limit "device" "$ip_mac" "$dnd_low_range"; then
+			echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}${ip_name} ${ip} 离线（低频跳过）" >> ${logfile}
+			continue
+		fi
 		[ ! -z "$pushbot_blacklist" ] && local tmp_mac=`echo "${pushbot_blacklist}"|grep -w -i ${ip_mac}`
 		[ ! -z "$pushbot_whitelist" ] && local tmp_mac=`echo "${pushbot_whitelist}"|grep -w -i ${ip_mac}`
 		[ ! -z "$tmp_mac" ] && ( cat ${dir}ipAddress|grep -q -w -i ${tmp_mac} ) && continue
@@ -1390,6 +1433,11 @@ function login_send(){
 		local web_login_time=`cat ${dir}web_login|grep -w ${login_ip}|awk '{print $1}'|grep -v "^$"|sort -u|head -n1`
 		local web_login_mode=`cat ${dir}web_login|grep -w ${login_ip}|awk '{print $3}'|grep -v "^$"|sort -u|head -n1`
 		if [ ! -z "$web_logged" ] && [ "$web_logged" -eq "1" ]; then
+			# 低频通知检查（模式3）：同一来源Web登录，在时间窗口内只通知一次
+			if ! check_dnd_limit "web_login" "$login_ip" "$dnd_low_range"; then
+				echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}设备 ${login_ip} 通过 Web 登录（低频跳过）" >> ${logfile}
+				continue
+			fi
 			if [ "$table_enable" = "1" ]; then
 				local LF='\n'
 				local info="${LF}| **时间** | ${web_login_time} |${LF}| --- | --- |${LF}| **设备 IP** | ${login_ip} |${LF}| **登录方式** | ${web_login_mode} |"
@@ -1429,6 +1477,11 @@ function login_send(){
 		local ssh_login_mode=`cat ${dir}ssh_login|grep -w ${login_ip}|awk '{print $3}'|grep -v "^$"|sort -u|head -n1`
 		[ ! -z "$ssh_login_mode" ] && local content_mode="${str_linefeed}${str_tab}登录方式： ${str_space}${str_space}${str_space}${str_space}${ssh_login_mode}"
 		if [ ! -z "$ssh_logged" ] && [ "$ssh_logged" -eq "1" ]; then
+			# 低频通知检查（模式3）：同一来源SSH登录，在时间窗口内只通知一次
+			if ! check_dnd_limit "ssh_login" "$login_ip" "$dnd_low_range"; then
+				echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}设备 ${login_ip} 通过 SSH 登录（低频跳过）" >> ${logfile}
+				continue
+			fi
 			if [ "$table_enable" = "1" ]; then
 				local LF='\n'
 				local info="${LF}| **时间** | ${ssh_login_time} |${LF}| --- | --- |${LF}| **设备 IP** | ${login_ip} |${LF}| **登录方式** | ${ssh_login_mode} |"
@@ -1615,6 +1668,12 @@ function login_send(){
 					[ -z "$wifi_mac" ] && continue
 					[ -f "${dir}wifi_notified" ] && grep -q -i -w "${wifi_mac}" ${dir}wifi_notified 2>/dev/null && continue
 					echo "$wifi_prev_macs" | grep -q -i -w "${wifi_mac}" && continue
+					# 低频通知检查（模式3）：同一设备WiFi连接通知，在时间窗口内只通知一次
+					if ! check_dnd_limit "wifi_conn" "$wifi_mac" "$dnd_low_range"; then
+						echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}WiFi 设备 ${wifi_mac} 已连接（低频跳过）" >> ${logfile}
+						echo "$wifi_mac" >> ${dir}wifi_notified
+						continue
+					fi
 					echo "$wifi_mac" >> ${dir}wifi_notified
 					_new_count=$((_new_count + 1))
 					local _ssid=$(echo "$wifi_cur_ssids" | awk -v n=$((_idx+1)) '{print $n}')
@@ -1697,6 +1756,11 @@ function login_send(){
 							rm -f "$_offline_file"
 							# 离线后清除连接通知记录，设备重新连接时可再次通知
 							sed -i "/${wifi_mac}/Id" ${dir}wifi_notified 2>/dev/null
+							# 低频通知检查（模式3）：同一设备WiFi离线通知，在时间窗口内只通知一次
+							if ! check_dnd_limit "wifi_disc" "$wifi_mac" "$dnd_low_range"; then
+								echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}WiFi 设备 ${wifi_mac} 已离线（低频跳过）" >> ${logfile}
+								continue
+							fi
 							echo "`date "+%Y-%m-%d %H:%M:%S"` WiFi 设备 ${wifi_mac} 已离线" >> ${logfile}
 							local wifi_time=$(date "+%Y-%m-%d %H:%M:%S")
 							local wifi_offline_dur=$(time_for_humans $_duration)
