@@ -1816,9 +1816,9 @@ function login_send(){
 			local _wifi_fail_mac=""
 			# 开源驱动：从 logread 提取（格式包含 MAC）
 			_wifi_fail_mac=$(echo "$_wifi_cur_log" | grep -i "PSK-MISMATCH\|deauthenticated due to local auth failure\|verify confirm fail\|EAPOL-Key MIC invalid" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | tail -1)
-			# MTK 闭源驱动：从 dmesg 提取认证失败的 MAC（Alg=3, Status=126）
+			# MTK 闭源驱动：从 logread 提取所有不同的认证失败 MAC（Alg=3, Status=126）
 			if [ -z "$_wifi_fail_mac" ]; then
-				_wifi_fail_mac=$(dmesg 2>/dev/null | tail -200 | grep "Rcv AUTH seq#1, Alg=3, Status=126" | tail -1 | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}")
+				_wifi_fail_mac=$(logread 2>/dev/null | tail -500 | grep "Rcv AUTH seq#1, Alg=3, Status=126" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | sort -u | tr '\n' ',' | sed 's/,$//')
 			fi
 			echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}WiFi 认证失败 ${_wifi_cur_count} 次${_wifi_fail_mac:+（MAC: ${_wifi_fail_mac}）}" >> ${logfile}
 			if [ "$table_enable" = "1" ]; then
