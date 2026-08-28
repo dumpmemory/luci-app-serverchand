@@ -1798,56 +1798,105 @@ function login_send(){
 		fi
 	fi
 
-	# WiFi 认证失败检测（基于 logread，兼容 MTK 闭源和开源驱动）
-	# MTK 闭源: verify confirm fail（kern.err）
-	# 标准 hostapd: PSK-MISMATCH / deauthenticated due to local auth failure / EAPOL-Key MIC invalid（daemon.notice）
-	# 增量检测：记录总行数，只有新增或首次达阈值才通知
+	# WiFi 认证失败检测
+	# MTK 闭源驱动（mt_wifi 模块）：内核时间戳增量 + 按 MAC 分组（只统计新事件，按设备分组，不重复累计）
+	# 开源驱动（hostapd/wpa_supplicant）：原有增量计数方案（保持不变）
 	if [ "$wifi_auth_failed" = "1" ]; then
-		local _wifi_cur_log=$(logread 2>/dev/null | tail -200)
-		local _wifi_cur_count=$(echo "$_wifi_cur_log" | grep -i "PSK-MISMATCH\|deauthenticated due to local auth failure\|verify confirm fail\|EAPOL-Key MIC invalid" | wc -l)
-		local _wifi_prev_count=0
-		[ -f "${dir}wifi_fail_count" ] && _wifi_prev_count=$(cat ${dir}wifi_fail_count 2>/dev/null)
-		echo "$_wifi_cur_count" > ${dir}wifi_fail_count
-		local _new_fails=$((_wifi_cur_count - _wifi_prev_count))
-		[ "$_new_fails" -lt "0" ] && _new_fails=0
-		local _threshold=${login_max_num:-5}
-		if [ "$_wifi_cur_count" -ge "$_threshold" ] && { [ "$_wifi_prev_count" -lt "$_threshold" ] || [ "$_new_fails" -gt "0" ]; }; then
-			# 提取失败 MAC（开源驱动优先从 logread 提取，MTK 闭源驱动从 dmesg 提取）
-			local _wifi_fail_mac=""
-			# 开源驱动：从 logread 提取（格式包含 MAC）
-			_wifi_fail_mac=$(echo "$_wifi_cur_log" | grep -i "PSK-MISMATCH\|deauthenticated due to local auth failure\|verify confirm fail\|EAPOL-Key MIC invalid" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | tail -1)
-			# MTK 闭源驱动：从 logread 提取所有不同的认证失败 MAC（Alg=3, Status=126）
-			if [ -z "$_wifi_fail_mac" ]; then
-				_wifi_fail_mac=$(logread 2>/dev/null | tail -500 | grep "Rcv AUTH seq#1, Alg=3, Status=126" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | sort -u | tr '\n' ',' | sed 's/,$//')
-			fi
-			echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}WiFi 认证失败 ${_wifi_cur_count} 次${_wifi_fail_mac:+（MAC: ${_wifi_fail_mac}）}" >> ${logfile}
-			if [ "$table_enable" = "1" ]; then
-				local LF='\n'
-				local _wifi_fail_info="${LF}| **失败次数** | ${_wifi_cur_count} |"
-				[ ! -z "$_wifi_fail_mac" ] && _wifi_fail_info="${_wifi_fail_info}${LF}| **MAC** | ${_wifi_fail_mac} |"
-				if [ -z "$title" ]; then
-					title="WiFi 认证失败警告"
-					content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${_wifi_fail_info}"
-				elif ( echo "$title"|grep -q "WiFi" ); then
-					content="${content}${str_splitline}${_wifi_fail_info}"
+		if lsmod 2>/dev/null | grep -q "^mt_wifi"; then
+			# ── MTK 闭源驱动：内核时间戳增量 + 按 MAC 分组 ──
+			# 失败事件格式：[6513950.363098] ... Rcv AUTH seq#1, Alg=3, Status=126 from [wcid=1023]86:1f:35:0c:19:bb
+			# 提取 (内核时间 MAC) 对，用内核时间戳过滤"上次报告时间"之后的新事件，
+			# 避免重复累计报告；成功事件（SETKEYS DONE / Status=0）不在统计范围
+			local _fail_events=$(logread 2>/dev/null | tail -1000 | grep "Rcv AUTH seq#1, Alg=3, Status=126" | sed -n 's/.*\[\([0-9.]*\)\].*from \[wcid=[0-9]*\]\([0-9a-fA-F:]*\).*/\1 \2/p')
+			local _last_time=0
+			[ -f "${dir}wifi_fail_last_time" ] && _last_time=$(cat ${dir}wifi_fail_last_time 2>/dev/null)
+			[ -z "$_last_time" ] && _last_time=0
+			local _new_events=$(echo "$_fail_events" | awk -v t="$_last_time" '$1+0 > t+0')
+			local _new_count=0
+			[ ! -z "$_new_events" ] && _new_count=$(echo "$_new_events" | wc -l)
+			local _threshold=${login_max_num:-5}
+			if [ "$_new_count" -ge "$_threshold" ]; then
+				# 按 MAC 分组统计：每行 "MAC 次数"（不去重——多频段/多接口的真实失败都应计入，攻击提醒需反映真实强度）
+				local _mac_stats=$(echo "$_new_events" | awk '{count[$2]++} END {for (mac in count) print mac, count[mac]}' | sort)
+				# 更新状态文件为最新事件时间（避免下次重复报告本批事件）
+				local _max_time=$(echo "$_fail_events" | awk '{print $1}' | sort -n | tail -1)
+				[ ! -z "$_max_time" ] && echo "$_max_time" > ${dir}wifi_fail_last_time
+				echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}WiFi 认证失败 ${_new_count} 次" >> ${logfile}
+				if [ "$table_enable" = "1" ]; then
+					local LF='\n'
+					local _mac_rows=$(echo "$_mac_stats" | awk '{printf "\\n| %s | %s 次 |", $1, $2}')
+					local _wifi_fail_info="${LF}| **失败MAC** | **次数** |${LF}| --- | --- |${_mac_rows}"
+					if [ -z "$title" ]; then
+						title="WiFi 认证失败警告"
+						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${_wifi_fail_info}"
+					elif ( echo "$title"|grep -q "WiFi" ); then
+						content="${content}${str_splitline}${_wifi_fail_info}"
+					else
+						title="设备状态变化"
+						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${_wifi_fail_info}"
+					fi
 				else
-					title="设备状态变化"
-					content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${_wifi_fail_info}"
-				fi
-			else
-				local _wifi_fail_detail="失败次数：${_wifi_cur_count}"
-				[ ! -z "$_wifi_fail_mac" ] && _wifi_fail_detail="MAC：${_wifi_fail_mac}${str_linefeed}${str_tab}${_wifi_fail_detail}"
-				if [ -z "$title" ]; then
-					title="WiFi 认证失败警告"
-					content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${str_linefeed}${str_tab}${_wifi_fail_detail}"
-				elif ( echo "$title"|grep -q "WiFi" ); then
-					content="${content}${str_splitline}${str_linefeed}${str_tab}${_wifi_fail_detail}"
-				else
-					title="设备状态变化"
-					content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${str_linefeed}${str_tab}${_wifi_fail_detail}"
+					local _mac_detail=$(echo "$_mac_stats" | awk -v lf="${str_linefeed}" -v tab="${str_tab}" 'NR>1{printf "%s", lf} {printf "%s%s：%s 次", tab, $1, $2}')
+					local _wifi_fail_detail="失败 MAC：${str_linefeed}${_mac_detail}"
+					if [ -z "$title" ]; then
+						title="WiFi 认证失败警告"
+						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${str_linefeed}${_wifi_fail_detail}"
+					elif ( echo "$title"|grep -q "WiFi" ); then
+						content="${content}${str_splitline}${str_linefeed}${_wifi_fail_detail}"
+					else
+						title="设备状态变化"
+						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${str_linefeed}${_wifi_fail_detail}"
+					fi
 				fi
 			fi
-	fi
+		else
+			# ── 开源驱动：原有增量计数逻辑 ──
+			local _wifi_cur_log=$(logread 2>/dev/null | tail -200)
+			local _wifi_cur_count=$(echo "$_wifi_cur_log" | grep -i "PSK-MISMATCH\|deauthenticated due to local auth failure\|verify confirm fail\|EAPOL-Key MIC invalid" | wc -l)
+			local _wifi_prev_count=0
+			[ -f "${dir}wifi_fail_count" ] && _wifi_prev_count=$(cat ${dir}wifi_fail_count 2>/dev/null)
+			echo "$_wifi_cur_count" > ${dir}wifi_fail_count
+			local _new_fails=$((_wifi_cur_count - _wifi_prev_count))
+			[ "$_new_fails" -lt "0" ] && _new_fails=0
+			local _threshold=${login_max_num:-5}
+			if [ "$_wifi_cur_count" -ge "$_threshold" ] && { [ "$_wifi_prev_count" -lt "$_threshold" ] || [ "$_new_fails" -gt "0" ]; }; then
+				# 提取失败 MAC（开源驱动优先从 logread 提取，MTK 闭源驱动从 dmesg 提取）
+				local _wifi_fail_mac=""
+				# 开源驱动：从 logread 提取（格式包含 MAC）
+				_wifi_fail_mac=$(echo "$_wifi_cur_log" | grep -i "PSK-MISMATCH\|deauthenticated due to local auth failure\|verify confirm fail\|EAPOL-Key MIC invalid" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | tail -1)
+				# MTK 闭源驱动：从 logread 提取所有不同的认证失败 MAC（Alg=3, Status=126）
+				if [ -z "$_wifi_fail_mac" ]; then
+					_wifi_fail_mac=$(logread 2>/dev/null | tail -500 | grep "Rcv AUTH seq#1, Alg=3, Status=126" | grep -ioE "([0-9a-f]{2}:){5}[0-9a-f]{2}" | sort -u | tr '\n' ',' | sed 's/,$//')
+				fi
+				echo "`date "+%Y-%m-%d %H:%M:%S"` ${disturb_text}WiFi 认证失败 ${_wifi_cur_count} 次${_wifi_fail_mac:+（MAC: ${_wifi_fail_mac}）}" >> ${logfile}
+				if [ "$table_enable" = "1" ]; then
+					local LF='\n'
+					local _wifi_fail_info="${LF}| **失败次数** | ${_wifi_cur_count} |"
+					[ ! -z "$_wifi_fail_mac" ] && _wifi_fail_info="${_wifi_fail_info}${LF}| **MAC** | ${_wifi_fail_mac} |"
+					if [ -z "$title" ]; then
+						title="WiFi 认证失败警告"
+						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${_wifi_fail_info}"
+					elif ( echo "$title"|grep -q "WiFi" ); then
+						content="${content}${str_splitline}${_wifi_fail_info}"
+					else
+						title="设备状态变化"
+						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${_wifi_fail_info}"
+					fi
+				else
+					local _wifi_fail_detail="失败次数：${_wifi_cur_count}"
+					[ ! -z "$_wifi_fail_mac" ] && _wifi_fail_detail="MAC：${_wifi_fail_mac}${str_linefeed}${str_tab}${_wifi_fail_detail}"
+					if [ -z "$title" ]; then
+						title="WiFi 认证失败警告"
+						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${str_linefeed}${str_tab}${_wifi_fail_detail}"
+					elif ( echo "$title"|grep -q "WiFi" ); then
+						content="${content}${str_splitline}${str_linefeed}${str_tab}${_wifi_fail_detail}"
+					else
+						title="设备状态变化"
+						content="${content}${str_splitline}${str_title_start}${font_fail} WiFi 认证失败${font_end}${str_title_end}${str_linefeed}${str_tab}${_wifi_fail_detail}"
+					fi
+				fi
+		fi
+		fi
 	fi
 }
 
