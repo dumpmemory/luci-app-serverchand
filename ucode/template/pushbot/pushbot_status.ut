@@ -89,8 +89,10 @@ function PB_sys(name) { var v = PB_CONFIG && PB_CONFIG.system && PB_CONFIG.syste
 function PB_sysVal(name, def) { var v = PB_CONFIG && PB_CONFIG.system && PB_CONFIG.system[name]; return (v !== undefined && v !== null) ? v : (def !== undefined ? def : null); }
 function PB_bool(opt) { return PB_val(opt) === '1'; }
 
-function PB_applyConfig(data) {
+function PB_applyConfig(data, silent) {
 	PB_CONFIG = data;
+
+	if (silent) return;
 
 	var ready = PB_READY;
 	PB_READY = [];
@@ -3631,8 +3633,13 @@ function submitAll() {
 		btn.disabled = false; btn.textContent = '{{ _('Save & Apply') }}';
 		if (x.status == 200) {
 			pbShowToast(true);
-			/* 重新获取配置，使 PB_CONFIG 与服务器同步，避免预览比对旧值 */
-			PB_bootstrap();
+			/* 静默刷新配置：只更新 PB_CONFIG，不重新执行 UI 初始化回调 */
+			XHR.get('{{ dispatcher.build_url('admin', 'services', 'pushbot', 'get_config') }}', null,
+			function(x2, data2) {
+				if (x2 && x2.status === 200 && data2 && typeof data2 === 'object') {
+					PB_applyConfig(data2, true);
+				}
+			});
 		} else {
 			pbShowToast(false);
 		}
