@@ -457,8 +457,8 @@ else
 
 			liteChoiceBtns.forEach(function(b) {
 				var v = b.getAttribute('data-value');
-				var h = hiddenBox.querySelector('[name="cbid.pushbot.pushbot.lite_enable"]');
-				var active = h && (' ' + h.value + ' ').indexOf(' ' + v + ' ') >= 0;
+				var h = hiddenBox.querySelector('[name="cbid.pushbot.pushbot.lite_enable"][value="' + v + '"]');
+				var active = !!h;
 				b.className = 'pushbot-choice-button ' + (active ? 'is-on' : 'is-off');
 			});
 
@@ -480,16 +480,12 @@ else
 			b.addEventListener('click', function(e) {
 				e.preventDefault();
 				var v = b.getAttribute('data-value');
-				var h = hiddenBox.querySelector('[name="cbid.pushbot.pushbot.lite_enable"]');
-				if (!h) {
-					h = document.createElement('input'); h.type = 'hidden';
-					h.name = 'cbid.pushbot.pushbot.lite_enable';
-					hiddenBox.appendChild(h);
+				var h = hiddenBox.querySelector('[name="cbid.pushbot.pushbot.lite_enable"][value="' + v + '"]');
+				if (h) {
+					h.parentNode.removeChild(h);
+				} else {
+					makeMultiHidden('lite_enable', v);
 				}
-				var cur = h.value ? h.value.split(/\s+/) : [];
-				var idx = cur.indexOf(v);
-				if (idx >= 0) cur.splice(idx, 1); else cur.push(v);
-				h.value = cur.join(' ');
 				syncState();
 			});
 		});
@@ -3502,6 +3498,10 @@ window.__pbCollectData = function() {
 			data[k].forEach(function(v) { if (u.indexOf(v) < 0) u.push(v); });
 			data[k] = u.length === 1 ? u[0] : u;
 		}
+	}
+	/* lite_enable 全关时没有 hidden input，补空值使 preview 能检测变更 & 保存能清除 */
+	if (!('lite_enable' in data) && PB_CONFIG && PB_CONFIG.config && PB_CONFIG.config.lite_enable !== undefined) {
+		data['lite_enable'] = '';
 	}
 	return data;
 };
