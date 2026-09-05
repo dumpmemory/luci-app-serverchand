@@ -540,6 +540,9 @@ msgstr ""
 msgid "Not a public IP"
 msgstr ""
 
+msgid "Not recommended when the traffic source is nlbwmon"
+msgstr ""
+
 msgid "OUI data"
 msgstr ""
 

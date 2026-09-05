@@ -411,10 +411,6 @@ else
 					'<span class="pushbot-choice-icon"><svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" style="width:16px;height:16px"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg></span>',
 					'<span class="pushbot-choice-label">{{ _('Download to RAM') }}</span>',
 				'</button>',
-				'<button type="button" class="pushbot-choice-button is-off" data-flag="reset_regularly">',
-					'<span class="pushbot-choice-icon"><svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" style="width:16px;height:16px"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 14h-2v-6h2v6zm0-8h-2V6h2v2z"/></svg></span>',
-					'<span class="pushbot-choice-label">{{ _('Reset traffic at midnight') }}</span>',
-				'</button>',
 				'<button type="button" class="pushbot-choice-button is-off" data-flag="debuglevel">',
 					'<span class="pushbot-choice-icon"><svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" style="width:16px;height:16px"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 14h-2v-2h2v2zm0-4h-2V8h2v4z"/></svg></span>',
 					'<span class="pushbot-choice-label">{{ _('Enable logging') }}</span>',
@@ -2992,7 +2988,7 @@ function initModernTabs() {
 	var clientPane = document.createElement('div');
 	clientPane.id = 'pushbot_pane_client';
 	clientPane.className = 'pushbot-tab-pane';
-	clientPane.innerHTML = '<div class="pushbot-mode-card" style="padding:0;overflow:hidden"><div class="pushbot-log-container"><div class="pushbot-log-header"><div class="pushbot-log-controls"><label class="pushbot-log-switch" id="client_auto_switch"><span class="pushbot-log-switch-text">{{ _('Auto refresh') }}</span><input type="checkbox" id="client_auto_toggle" checked><span class="pushbot-log-switch-track"></span></label><span id="client_traffic_src" style="display:none"></span><button class="pushbot-log-btn" id="client_check_traffic" style="margin-left:4px;font-size:11px;padding:3px 8px">{{ _("Refresh traffic source check") }}</button><button class="pushbot-log-btn" id="client_refresh_btn" style="margin-left:auto">{{ _('Refresh') }}</button></div></div><div class="pushbot-log-content" id="pushbot_client_content"><p style="padding:12px;margin:0;color:#94a3b8;text-align:center">{{ _('Loading...') }}</p></div></div></div>';
+	clientPane.innerHTML = '<div class="pushbot-mode-card" style="padding:0;overflow:hidden"><div class="pushbot-log-container"><div class="pushbot-log-header"><div class="pushbot-log-controls"><label class="pushbot-log-switch" id="client_auto_switch"><span class="pushbot-log-switch-text">{{ _('Auto refresh') }}</span><input type="checkbox" id="client_auto_toggle" checked><span class="pushbot-log-switch-track"></span></label><span id="client_traffic_src" style="display:none"></span><button class="pushbot-log-btn" id="client_check_traffic" style="margin-left:4px;font-size:11px;padding:3px 8px">{{ _("Refresh traffic source check") }}</button><button type="button" class="pushbot-log-btn" id="client_reset_traffic" style="margin-left:4px;font-size:11px;padding:3px 8px">{{ _('Reset traffic at midnight') }}</button><button class="pushbot-log-btn" id="client_refresh_btn" style="margin-left:auto">{{ _('Refresh') }}</button></div></div><div class="pushbot-log-content" id="pushbot_client_content"><p style="padding:12px;margin:0;color:#94a3b8;text-align:center">{{ _('Loading...') }}</p></div></div></div>';
 
 	var logPane = document.createElement('div');
 	logPane.id = 'pushbot_pane_log';
@@ -3276,6 +3272,8 @@ function loadLog() {
 		var pillColor = isNlbw ? 'background:rgba(34,197,94,0.15);color:#16a34a;border:1px solid rgba(34,197,94,0.3)' : 'background:rgba(249,115,22,0.15);color:#ea580c;border:1px solid rgba(249,115,22,0.3)';
 		el.style.display = '';
 		el.innerHTML = '{{ _('Traffic source') }}: <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;vertical-align:middle;margin-left:4px;' + pillColor + '">' + (isNlbw ? 'nlbwmon' : 'wrtbwmon') + '</span>';
+		var rtb = document.getElementById('client_reset_traffic');
+		if (rtb) rtb.title = isNlbw ? '{{ _('Not recommended when the traffic source is nlbwmon') }}' : '{{ _('Reset traffic at midnight') }}';
 	}
 	function renderClientTable() {
 		var container = document.getElementById('pushbot_client_content');
@@ -3392,6 +3390,27 @@ function loadLog() {
 					loadClients();
 				}
 			});
+		});
+	}
+	/* 每天零点重置流量（迁移至在线设备头部）：共用 reset_regularly hidden 字段，保存走同一 __pbCollectData */
+	var resetTrafficBtn = document.getElementById('client_reset_traffic');
+	var resetTrafficHidden = document.querySelector('input[name="cbid.pushbot.pushbot.reset_regularly"]');
+	function syncResetTrafficBtn() {
+		if (!resetTrafficBtn || !resetTrafficHidden) return;
+		var on = resetTrafficHidden.value === '1';
+		resetTrafficBtn.classList.toggle('is-on', on);
+	}
+	function updateResetTrafficTip() {
+		if (!resetTrafficBtn) return;
+		resetTrafficBtn.title = (_clientTrafficSrc === 'nlbw') ? '{{ _('Not recommended when the traffic source is nlbwmon') }}' : '{{ _('Reset traffic at midnight') }}';
+	}
+	if (resetTrafficBtn && resetTrafficHidden) {
+		updateResetTrafficTip();
+		syncResetTrafficBtn();
+		resetTrafficBtn.addEventListener('click', function(e) {
+			e.preventDefault();
+			resetTrafficHidden.value = resetTrafficHidden.value === '1' ? '0' : '1';
+			syncResetTrafficBtn();
 		});
 	}
 }
@@ -4123,6 +4142,16 @@ window.addEventListener('DOMContentLoaded', function() {
 	border-color: rgba(239, 68, 68, 0.25);
 	color: #dc2626;
 }
+.pushbot-log-btn.is-on {
+	background: rgba(34, 197, 94, 0.2);
+	color: #16a34a;
+	border-color: rgba(34, 197, 94, 0.4);
+}
+.pushbot-log-btn.is-on:hover {
+	background: rgba(34, 197, 94, 0.15);
+	color: #16a34a;
+	border-color: rgba(34, 197, 94, 0.3);
+}
 .pushbot-log-content {
 	flex: 1;
 	max-height: 480px;
@@ -4159,6 +4188,15 @@ window.addEventListener('DOMContentLoaded', function() {
 			.pushbot-dk .pushbot-log-btn:hover {
 				background: rgba(239, 68, 68, 0.15) !important;
 				color: #fca5a5 !important;
+			}
+			.pushbot-dk .pushbot-log-btn.is-on {
+				background: rgba(34, 197, 94, 0.2) !important;
+				border-color: rgba(34, 197, 94, 0.4) !important;
+				color: #4ade80 !important;
+			}
+			.pushbot-dk .pushbot-log-btn.is-on:hover {
+				background: rgba(34, 197, 94, 0.15) !important;
+				color: #4ade80 !important;
 			}
 			.pushbot-dk .pushbot-log-header {
 				border-color: rgba(255, 255, 255, 0.06) !important;

@@ -593,6 +593,9 @@ msgstr "仅通知此接口"
 msgid "Not a public IP"
 msgstr "非公网IP"
 
+msgid "Not recommended when the traffic source is nlbwmon"
+msgstr "nlbwmon不建议启用"
+
 msgid "OUI data"
 msgstr "OUI数据"
 
