@@ -740,8 +740,14 @@ function pushbot_cron(){
 
 	# 重置流量
 	if [ ! -z "$reset_regularly" ] && [ "$reset_regularly" -eq "1" ]; then
-		crontab -l 2>/dev/null > conf && echo -e "0 0 * * * rm /tmp/pushbot/usage.db >/dev/null 2>&1" >> conf && crontab conf && rm -f conf >/dev/null 2>&1
-		crontab -l 2>/dev/null > conf && echo -e "0 0 * * * rm /tmp/pushbot/usage6.db >/dev/null 2>&1" >> conf && crontab conf && rm -f conf >/dev/null 2>&1
+		if [ "$traffic_source" = "nlbw" ]; then
+			# nlbwmon: 清除本月数据库（nlbwmon 会自动按 generations 保留历史）
+			crontab -l 2>/dev/null > conf && echo -e "0 0 * * * rm -f /var/lib/nlbwmon/\$(date +\\%Y\\%m).db.gz >/dev/null 2>&1" >> conf && crontab conf && rm -f conf >/dev/null 2>&1
+		else
+			# wrtbwmon: 清除 usage 数据库
+			crontab -l 2>/dev/null > conf && echo -e "0 0 * * * rm -f /tmp/pushbot/usage.db >/dev/null 2>&1" >> conf && crontab conf && rm -f conf >/dev/null 2>&1
+			crontab -l 2>/dev/null > conf && echo -e "0 0 * * * rm -f /tmp/pushbot/usage6.db >/dev/null 2>&1" >> conf && crontab conf && rm -f conf >/dev/null 2>&1
+		fi
 	fi
 	# 定时/间隔严格互斥，以 crontab 开关为准（1=定时发送，2=间隔发送）
 	# 避免切换模式后残留字段（regular_time* / interval_time）误触发错误分支
