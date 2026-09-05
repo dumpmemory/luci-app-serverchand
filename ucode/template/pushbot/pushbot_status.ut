@@ -3409,8 +3409,50 @@ function loadLog() {
 		syncResetTrafficBtn();
 		resetTrafficBtn.addEventListener('click', function(e) {
 			e.preventDefault();
-			resetTrafficHidden.value = resetTrafficHidden.value === '1' ? '0' : '1';
-			syncResetTrafficBtn();
+			var turningOn = resetTrafficHidden.value !== '1';
+			if (turningOn && _clientTrafficSrc === 'nlbw') {
+				/* nlbwmon 下启用重置 → 弹出二次确认 */
+				var oldOv = document.querySelector('.pb-preview-overlay');
+				if (oldOv) oldOv.remove();
+				var ov = document.createElement('div');
+				ov.className = 'pb-preview-overlay';
+				var box = document.createElement('div');
+				box.className = 'pb-preview-box';
+				var tit = document.createElement('div');
+				tit.className = 'pb-preview-title';
+				tit.textContent = '{{ _('Warning') }}';
+				box.appendChild(tit);
+				var msg = document.createElement('div');
+				msg.className = 'pb-preview-empty';
+				msg.style.cssText = 'color:#dc2626;font-weight:600;line-height:1.6';
+				msg.textContent = '{{ _('nlbwmon不建议启用') }}';
+				box.appendChild(msg);
+				var desc = document.createElement('div');
+				desc.style.cssText = 'font-size:12px;color:#64748b;margin-top:6px;line-height:1.5';
+				desc.textContent = '{{ _('When the traffic source is nlbwmon, resetting the traffic database at midnight has no effect. Are you sure you want to enable it?') }}';
+				box.appendChild(desc);
+				var btns = document.createElement('div');
+				btns.className = 'pb-preview-btns';
+				var disc = document.createElement('button');
+				disc.type = 'button'; disc.className = 'pb-preview-btn pb-preview-btn-disc'; disc.textContent = '{{ _('Cancel') }}';
+				disc.addEventListener('click', function() { ov.remove(); });
+				btns.appendChild(disc);
+				var conf = document.createElement('button');
+				conf.type = 'button'; conf.className = 'pb-preview-btn pb-preview-btn-conf'; conf.textContent = '{{ _('Confirm') }}';
+				conf.addEventListener('click', function() {
+					ov.remove();
+					resetTrafficHidden.value = '1';
+					syncResetTrafficBtn();
+				});
+				btns.appendChild(conf);
+				box.appendChild(btns);
+				ov.appendChild(box);
+				document.body.appendChild(ov);
+				setTimeout(function() { ov.classList.add('show'); }, 10);
+			} else {
+				resetTrafficHidden.value = turningOn ? '1' : '0';
+				syncResetTrafficBtn();
+			}
 		});
 	}
 }
