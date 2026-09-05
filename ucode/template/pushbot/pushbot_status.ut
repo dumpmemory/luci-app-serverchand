@@ -3627,7 +3627,16 @@ function submitAll() {
 	var x = new XMLHttpRequest();
 	x.open('POST', '{{ dispatcher.build_url('admin', 'services', 'pushbot', 'save_config') }}', true);
 	x.setRequestHeader('Content-Type', 'application/json');
-	x.onload = function() { btn.disabled = false; btn.textContent = '{{ _('Save & Apply') }}'; pbShowToast(x.status == 200); };
+	x.onload = function() {
+		btn.disabled = false; btn.textContent = '{{ _('Save & Apply') }}';
+		if (x.status == 200) {
+			pbShowToast(true);
+			/* 重新获取配置，使 PB_CONFIG 与服务器同步，避免预览比对旧值 */
+			PB_bootstrap();
+		} else {
+			pbShowToast(false);
+		}
+	};
 	x.onerror = function() { btn.disabled = false; btn.textContent = '{{ _('Save & Apply') }}'; pbShowToast(false); };
 	x.send(JSON.stringify(data));
 }
